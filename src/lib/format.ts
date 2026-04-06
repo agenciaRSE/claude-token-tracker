@@ -1,0 +1,68 @@
+/** Format large token counts: 125432 -> "125.4K" */
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) {
+    return (n / 1_000_000).toFixed(1) + "M";
+  }
+  if (n >= 1_000) {
+    return (n / 1_000).toFixed(1) + "K";
+  }
+  return n.toString();
+}
+
+/** Format cost in USD: 0.123456 -> "$0.12" */
+export function formatCost(usd: number): string {
+  if (usd < 0.01) {
+    return usd === 0 ? "$0.00" : "<$0.01";
+  }
+  return "$" + usd.toFixed(2);
+}
+
+/** Format a model name to a short display name */
+export function formatModelName(model: string): string {
+  // "claude-sonnet-4-5-20250929" -> "Sonnet 4.5"
+  const parts = model.replace("claude-", "").split("-");
+  if (parts.length >= 3) {
+    const name = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+    const version = parts.slice(1).filter((p) => !p.match(/^\d{8}$/)).join(".");
+    return `${name} ${version}`;
+  }
+  return model;
+}
+
+/** Format hour number to display: 14 -> "2 PM" */
+export function formatHour(hour: number): string {
+  if (hour === 0) return "12 AM";
+  if (hour === 12) return "12 PM";
+  if (hour < 12) return `${hour} AM`;
+  return `${hour - 12} PM`;
+}
+
+/** Format relative time: ISO string -> "2 min ago" */
+export function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/** Get the service status display info */
+export function formatServiceStatus(
+  status: string,
+): { label: string; color: string } {
+  switch (status) {
+    case "operational":
+      return { label: "OK", color: "#22c55e" };
+    case "degraded_performance":
+      return { label: "Slow", color: "#eab308" };
+    case "partial_outage":
+      return { label: "Partial", color: "#f97316" };
+    case "major_outage":
+      return { label: "Down", color: "#ef4444" };
+    default:
+      return { label: "?", color: "#6b7280" };
+  }
+}
