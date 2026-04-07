@@ -1,152 +1,316 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
+//! Reads real usage stats by walking ~/.claude/projects/**/*.jsonl session
+//! files and aggregating per-line metrics. We intentionally do NOT read
+//! ~/.claude/stats-cache.json because modern Claude Code no longer updates it
+//! (it can be months stale) — the .jsonl session logs are the source of truth.
+
+use std::collections::{HashMap, HashSet};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
+
+use chrono::{DateTime, Timelike, Utc};
 use serde::Deserialize;
-use chrono::Utc;
 
 use crate::state::{ClaudeStats, DailyTokens, HourCount, ModelUsageEntry};
 
-/// Raw shape of ~/.claude/stats-cache.json
+/// Don't open session files older than this — keeps the scan fast and
+/// still captures enough history for the 7-day trend and today's metrics.
+const RECENT_WINDOW_DAYS: u64 = 30;
+
+/// Shape of one line in a session .jsonl file — we deserialize only the
+/// handful of fields we actually consume.
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawStatsCache {
-    #[serde(default)]
-    daily_activity: Vec<RawDailyActivity>,
-    #[serde(default)]
-    daily_model_tokens: Vec<RawDailyModelTokens>,
-    #[serde(default)]
-    model_usage: HashMap<String, RawModelUsage>,
-    #[serde(default)]
-    total_sessions: u32,
-    #[serde(default)]
-    total_messages: u32,
-    #[serde(default)]
-    hour_counts: HashMap<String, u32>,
+struct Line {
+    #[serde(rename = "type")]
+    ty: Option<String>,
+    timestamp: Option<String>,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    #[serde(rename = "isMeta", default)]
+    is_meta: bool,
+    message: Option<LineMessage>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawDailyActivity {
-    date: String,
-    #[serde(default)]
-    message_count: u32,
-    #[serde(default)]
-    session_count: u32,
+struct LineMessage {
+    model: Option<String>,
+    usage: Option<Usage>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawDailyModelTokens {
-    date: String,
-    #[serde(default)]
-    tokens_by_model: HashMap<String, u64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawModelUsage {
+#[derive(Debug, Deserialize, Default)]
+struct Usage {
     #[serde(default)]
     input_tokens: u64,
     #[serde(default)]
     output_tokens: u64,
     #[serde(default)]
-    cache_read_input_tokens: u64,
-    #[serde(default)]
     cache_creation_input_tokens: u64,
     #[serde(default)]
-    cost_usd: f64,
+    cache_read_input_tokens: u64,
 }
 
-/// Resolve the path to ~/.claude/stats-cache.json cross-platform
-pub fn stats_cache_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".claude").join("stats-cache.json"))
+/// Approximate Anthropic list pricing per 1M tokens, in USD:
+/// returns (input, output, cache_create, cache_read). These can drift;
+/// they're a best-effort estimate for the popup/dashboard display.
+fn model_pricing(model: &str) -> (f64, f64, f64, f64) {
+    let m = model.to_lowercase();
+    if m.contains("opus") {
+        (15.0, 75.0, 18.75, 1.50)
+    } else if m.contains("haiku") {
+        (1.0, 5.0, 1.25, 0.10)
+    } else if m.contains("sonnet") {
+        (3.0, 15.0, 3.75, 0.30)
+    } else {
+        // Unknown model — fall back to Sonnet pricing so we don't return 0.
+        (3.0, 15.0, 3.75, 0.30)
+    }
 }
 
-/// Read and parse the stats cache file into our app's ClaudeStats struct
+fn compute_cost(model: &str, usage: &Usage) -> f64 {
+    let (p_in, p_out, p_cc, p_cr) = model_pricing(model);
+    (usage.input_tokens as f64 * p_in
+        + usage.output_tokens as f64 * p_out
+        + usage.cache_creation_input_tokens as f64 * p_cc
+        + usage.cache_read_input_tokens as f64 * p_cr)
+        / 1_000_000.0
+}
+
+/// Mutable aggregator that accumulates counters as we stream through lines.
+struct Aggregate {
+    today_date: String,
+    today_messages: u32,
+    today_tokens: u64,
+    today_cost: f64,
+    total_messages: u32,
+    today_sessions: HashSet<String>,
+    all_sessions: HashSet<String>,
+    /// Assistant-message counts by UTC hour (for the popup's peak hours grid).
+    hour_counts: [u32; 24],
+    /// date (YYYY-MM-DD) -> total tokens that day, used for the 7-day trend.
+    daily_tokens: HashMap<String, u64>,
+    /// Per-model lifetime aggregation within the scan window.
+    model_agg: HashMap<String, ModelAgg>,
+}
+
+#[derive(Default)]
+struct ModelAgg {
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_creation: u64,
+    cost: f64,
+}
+
+impl Aggregate {
+    fn new(today: String) -> Self {
+        Self {
+            today_date: today,
+            today_messages: 0,
+            today_tokens: 0,
+            today_cost: 0.0,
+            total_messages: 0,
+            today_sessions: HashSet::new(),
+            all_sessions: HashSet::new(),
+            hour_counts: [0u32; 24],
+            daily_tokens: HashMap::new(),
+            model_agg: HashMap::new(),
+        }
+    }
+}
+
+fn projects_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".claude").join("projects"))
+}
+
+/// Walk ~/.claude/projects/*/*.jsonl and aggregate usage stats.
 pub fn read_stats() -> ClaudeStats {
-    let path = match stats_cache_path() {
+    let root = match projects_dir() {
         Some(p) => p,
         None => {
-            log::warn!("Could not resolve home directory");
+            log::warn!("Could not resolve ~/.claude/projects/");
             return ClaudeStats::default();
         }
     };
 
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
+    if !root.exists() {
+        log::warn!("~/.claude/projects/ does not exist: {:?}", root);
+        return ClaudeStats::default();
+    }
+
+    let now = Utc::now();
+    let today = now.format("%Y-%m-%d").to_string();
+    let cutoff = SystemTime::now()
+        .checked_sub(Duration::from_secs(RECENT_WINDOW_DAYS * 24 * 60 * 60))
+        .unwrap_or(SystemTime::UNIX_EPOCH);
+
+    let mut agg = Aggregate::new(today);
+
+    let project_dirs = match fs::read_dir(&root) {
+        Ok(rd) => rd,
         Err(e) => {
-            log::warn!("Could not read stats-cache.json at {:?}: {}", path, e);
+            log::warn!("Failed to read projects dir: {}", e);
             return ClaudeStats::default();
         }
     };
 
-    let raw: RawStatsCache = match serde_json::from_str(&content) {
-        Ok(r) => r,
-        Err(e) => {
-            log::warn!("Could not parse stats-cache.json: {}", e);
-            return ClaudeStats::default();
+    for project_entry in project_dirs.flatten() {
+        let project_path = project_entry.path();
+        if !project_path.is_dir() {
+            continue;
         }
+        let files = match fs::read_dir(&project_path) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+
+        for file_entry in files.flatten() {
+            let path = file_entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            // Skip old files — keeps the scan bounded.
+            if let Ok(meta) = fs::metadata(&path) {
+                if let Ok(mtime) = meta.modified() {
+                    if mtime < cutoff {
+                        continue;
+                    }
+                }
+            }
+            process_file(&path, &mut agg);
+        }
+    }
+
+    build_claude_stats(agg)
+}
+
+fn process_file(path: &Path, agg: &mut Aggregate) {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return,
     };
+    let reader = BufReader::new(file);
 
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    for line in reader.lines().map_while(Result::ok) {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let parsed: Line = match serde_json::from_str(&line) {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
 
-    // Find today's activity
-    let today_activity = raw.daily_activity.iter().find(|a| a.date == today);
-    let today_messages = today_activity.map_or(0, |a| a.message_count);
-    let today_sessions = today_activity.map_or(0, |a| a.session_count);
+        // Skip lines with no timestamp (e.g. file-history-snapshot entries).
+        let ts = match parsed.timestamp.as_ref() {
+            Some(t) => t,
+            None => continue,
+        };
+        let dt = match DateTime::parse_from_rfc3339(ts) {
+            Ok(d) => d.with_timezone(&Utc),
+            Err(_) => continue,
+        };
+        let date_str = dt.format("%Y-%m-%d").to_string();
+        let is_today = date_str == agg.today_date;
 
-    // Compute today's tokens from daily_model_tokens
-    let today_tokens: u64 = raw.daily_model_tokens.iter()
-        .find(|d| d.date == today)
-        .map_or(0, |d| d.tokens_by_model.values().sum());
+        let ty = parsed.ty.as_deref().unwrap_or("");
 
-    // Compute today's cost (proportional estimate from model usage)
-    let total_all_tokens: u64 = raw.model_usage.values()
-        .map(|m| m.input_tokens + m.output_tokens)
-        .sum();
-    let total_cost: f64 = raw.model_usage.values()
-        .map(|m| m.cost_usd)
-        .sum();
-    let today_cost_usd = if total_all_tokens > 0 {
-        (today_tokens as f64 / total_all_tokens as f64) * total_cost
-    } else {
-        0.0
-    };
+        // Track sessions that had any activity at all.
+        if let Some(sid) = parsed.session_id.as_ref() {
+            agg.all_sessions.insert(sid.clone());
+            if is_today {
+                agg.today_sessions.insert(sid.clone());
+            }
+        }
 
-    // Parse hour counts
-    let mut hour_counts: Vec<HourCount> = raw.hour_counts.iter()
-        .filter_map(|(k, &v)| {
-            k.parse::<u8>().ok().map(|hour| HourCount { hour, count: v })
+        // User-initiated messages. Skip isMeta synthetic system entries.
+        if ty == "user" && !parsed.is_meta {
+            agg.total_messages += 1;
+            if is_today {
+                agg.today_messages += 1;
+            }
+        }
+
+        // Assistant messages carry the real token usage + cost info.
+        if ty == "assistant" {
+            if let Some(msg) = parsed.message.as_ref() {
+                if let Some(usage) = msg.usage.as_ref() {
+                    let total = usage.input_tokens
+                        + usage.output_tokens
+                        + usage.cache_creation_input_tokens
+                        + usage.cache_read_input_tokens;
+
+                    let model = msg
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let cost = compute_cost(&model, usage);
+
+                    // 7-day trend uses every day that appears, not just today.
+                    *agg.daily_tokens.entry(date_str.clone()).or_insert(0) += total;
+
+                    if is_today {
+                        agg.today_tokens += total;
+                        agg.today_cost += cost;
+                        let hour = dt.hour() as usize;
+                        if hour < 24 {
+                            agg.hour_counts[hour] += 1;
+                        }
+                    }
+
+                    let m = agg.model_agg.entry(model).or_default();
+                    m.input += usage.input_tokens;
+                    m.output += usage.output_tokens;
+                    m.cache_read += usage.cache_read_input_tokens;
+                    m.cache_creation += usage.cache_creation_input_tokens;
+                    m.cost += cost;
+                }
+            }
+        }
+    }
+}
+
+fn build_claude_stats(agg: Aggregate) -> ClaudeStats {
+    let hour_counts: Vec<HourCount> = (0..24u8)
+        .map(|h| HourCount {
+            hour: h,
+            count: agg.hour_counts[h as usize],
         })
         .collect();
-    hour_counts.sort_by_key(|h| h.hour);
 
-    // Parse daily tokens for trend analysis
-    let daily_tokens: Vec<DailyTokens> = raw.daily_model_tokens.iter()
-        .map(|d| DailyTokens {
-            date: d.date.clone(),
-            tokens: d.tokens_by_model.values().sum(),
-        })
+    // Sort dates descending and take the most recent 7 for the trend chart.
+    let mut daily_sorted: Vec<(String, u64)> = agg.daily_tokens.into_iter().collect();
+    daily_sorted.sort_by(|a, b| b.0.cmp(&a.0));
+    let daily_tokens: Vec<DailyTokens> = daily_sorted
+        .into_iter()
+        .take(7)
+        .map(|(date, tokens)| DailyTokens { date, tokens })
         .collect();
 
-    // Parse model usage
-    let model_usage: Vec<ModelUsageEntry> = raw.model_usage.iter()
-        .map(|(model, usage)| ModelUsageEntry {
-            model: model.clone(),
-            input_tokens: usage.input_tokens,
-            output_tokens: usage.output_tokens,
-            cache_read_tokens: usage.cache_read_input_tokens,
-            cache_creation_tokens: usage.cache_creation_input_tokens,
-            cost_usd: usage.cost_usd,
+    let mut model_usage: Vec<ModelUsageEntry> = agg
+        .model_agg
+        .into_iter()
+        .map(|(model, m)| ModelUsageEntry {
+            model,
+            input_tokens: m.input,
+            output_tokens: m.output,
+            cache_read_tokens: m.cache_read,
+            cache_creation_tokens: m.cache_creation,
+            cost_usd: m.cost,
         })
         .collect();
+    model_usage.sort_by(|a, b| {
+        b.cost_usd
+            .partial_cmp(&a.cost_usd)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     ClaudeStats {
-        today_messages,
-        today_sessions,
-        today_tokens,
-        today_cost_usd,
-        total_messages: raw.total_messages,
-        total_sessions: raw.total_sessions,
+        today_messages: agg.today_messages,
+        today_sessions: agg.today_sessions.len() as u32,
+        today_tokens: agg.today_tokens,
+        today_cost_usd: agg.today_cost,
+        total_messages: agg.total_messages,
+        total_sessions: agg.all_sessions.len() as u32,
         hour_counts,
         daily_tokens,
         model_usage,
