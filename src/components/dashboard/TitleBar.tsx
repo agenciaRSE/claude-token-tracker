@@ -15,19 +15,27 @@ export function TitleBar({ activeTab, onTabChange }: Props) {
   const appWindow = getCurrentWindow();
 
   return (
+    // data-tauri-drag-region makes this whole bar draggable, but propagates
+    // to children — so every interactive child below must opt out with
+    // data-tauri-drag-region="false" or its clicks get hijacked by drag.
     <div
       className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-white/5"
       data-tauri-drag-region
-      onMouseDown={() => appWindow.startDragging()}
     >
-      <div className="flex items-center gap-4">
+      <div
+        className="flex items-center gap-4"
+        data-tauri-drag-region
+      >
         {/* Logo */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-tauri-drag-region>
           <svg width="16" height="16" viewBox="0 0 32 32">
             <circle cx="16" cy="16" r="12" fill="#22c55e" opacity="0.8" />
             <circle cx="16" cy="16" r="6" fill="#22c55e" />
           </svg>
-          <span className="text-xs font-semibold text-foreground/80">
+          <span
+            className="text-xs font-semibold text-foreground/80"
+            data-tauri-drag-region
+          >
             Peak Monitor
           </span>
         </div>
@@ -37,6 +45,7 @@ export function TitleBar({ activeTab, onTabChange }: Props) {
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              data-tauri-drag-region="false"
               onClick={() => onTabChange(tab.id)}
               className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${
                 activeTab === tab.id
@@ -53,6 +62,7 @@ export function TitleBar({ activeTab, onTabChange }: Props) {
       {/* Window controls */}
       <div className="flex items-center gap-1">
         <button
+          data-tauri-drag-region="false"
           onClick={() => appWindow.minimize()}
           className="w-6 h-6 rounded flex items-center justify-center text-foreground/30 hover:text-foreground/60 hover:bg-white/10 transition-colors"
         >
@@ -61,6 +71,7 @@ export function TitleBar({ activeTab, onTabChange }: Props) {
           </svg>
         </button>
         <button
+          data-tauri-drag-region="false"
           onClick={() => appWindow.hide()}
           className="w-6 h-6 rounded flex items-center justify-center text-foreground/30 hover:text-foreground/60 hover:bg-white/10 transition-colors"
         >

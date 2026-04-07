@@ -36,22 +36,27 @@ export function PopupShell() {
         border: `1px solid ${borderColor}33`,
       }}
     >
-      {/* Title bar - draggable */}
+      {/* Title bar - draggable. Interactive children must opt out with
+          data-tauri-drag-region="false" or their clicks get hijacked. */}
       <div
         className="flex items-center justify-between px-3 py-2 shrink-0"
         data-tauri-drag-region
-        onMouseDown={() => getCurrentWindow().startDragging()}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-tauri-drag-region>
           <div
             className="w-2.5 h-2.5 rounded-full"
             style={{ background: borderColor }}
+            data-tauri-drag-region
           />
-          <span className="text-xs font-medium text-foreground/70">
+          <span
+            className="text-xs font-medium text-foreground/70"
+            data-tauri-drag-region
+          >
             Claude Peak Monitor
           </span>
         </div>
         <button
+          data-tauri-drag-region="false"
           onClick={() => getCurrentWindow().hide()}
           className="w-5 h-5 rounded flex items-center justify-center text-foreground/40 hover:text-foreground/80 hover:bg-white/10 transition-colors"
         >
