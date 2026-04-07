@@ -18,6 +18,11 @@ use crate::state::{ClaudeStats, DailyTokens, HourCount, ModelUsageEntry};
 /// still captures enough history for the 7-day trend and today's metrics.
 const RECENT_WINDOW_DAYS: u64 = 30;
 
+/// Hard cap on per-session .jsonl size we're willing to parse. A malicious
+/// symlink or a runaway log rotation bug could point us at an arbitrarily
+/// large file; 64 MiB is roughly 100x the largest real session we've seen.
+const MAX_SESSION_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Shape of one line in a session .jsonl file — we deserialize only the
 /// handful of fields we actually consume.
 #[derive(Debug, Deserialize)]
@@ -156,7 +161,15 @@ pub fn read_stats() -> ClaudeStats {
 
     for project_entry in project_dirs.flatten() {
         let project_path = project_entry.path();
-        if !project_path.is_dir() {
+        // symlink_metadata() does NOT follow symlinks, so we can detect and
+        // skip a project directory that's actually a link pointing elsewhere
+        // on disk. Combined with the same check at the file level below, this
+        // confines the scanner to the real ~/.claude/projects/ tree.
+        let lmeta = match fs::symlink_metadata(&project_path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if lmeta.file_type().is_symlink() || !lmeta.is_dir() {
             continue;
         }
         let files = match fs::read_dir(&project_path) {
@@ -169,12 +182,28 @@ pub fn read_stats() -> ClaudeStats {
             if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
             }
+            // Refuse to follow symlinks — they could point at arbitrary files
+            // on disk (e.g. /etc/passwd) and cause us to leak tokens from
+            // parsing unexpected content or blow memory on huge files.
+            let fmeta = match fs::symlink_metadata(&path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if fmeta.file_type().is_symlink() || !fmeta.is_file() {
+                continue;
+            }
+            if fmeta.len() > MAX_SESSION_FILE_BYTES {
+                log::warn!(
+                    "Skipping oversized session file ({} bytes): {:?}",
+                    fmeta.len(),
+                    path
+                );
+                continue;
+            }
             // Skip old files — keeps the scan bounded.
-            if let Ok(meta) = fs::metadata(&path) {
-                if let Ok(mtime) = meta.modified() {
-                    if mtime < cutoff {
-                        continue;
-                    }
+            if let Ok(mtime) = fmeta.modified() {
+                if mtime < cutoff {
+                    continue;
                 }
             }
             process_file(&path, &mut agg);

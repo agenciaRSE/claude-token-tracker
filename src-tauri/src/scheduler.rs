@@ -26,9 +26,9 @@ pub fn start_background_tasks(app: &AppHandle, tray_holder: Arc<TrayHolder>) {
             let service_status = status_poller::fetch_service_status().await;
 
             // Update state and recompute peak level (scoped to drop MutexGuard before await)
-            let (peak_level, _color_changed, should_notify) = {
+            let (peak_level, _color_changed, should_notify, refresh_secs) = {
                 let state = app_handle.state::<AppStateWrapper>();
-                let mut guard = state.0.lock().unwrap();
+                let mut guard = state.lock();
                 guard.service_status = service_status.clone();
 
                 let peak_level = compute_peak_level(
@@ -45,7 +45,11 @@ pub fn start_background_tasks(app: &AppHandle, tray_holder: Arc<TrayHolder>) {
                     && guard.settings.notifications_enabled
                     && guard.settings.notify_on_color_change;
 
-                (peak_level, color_changed, should_notify)
+                // Honor the user's configured refresh interval (clamped in
+                // validate_settings so we don't need to defend here).
+                let refresh_secs = guard.settings.refresh_interval_secs;
+
+                (peak_level, color_changed, should_notify, refresh_secs)
             }; // MutexGuard dropped here
 
             // Update tray icon (async - needs MutexGuard to be dropped)
@@ -62,7 +66,7 @@ pub fn start_background_tasks(app: &AppHandle, tray_holder: Arc<TrayHolder>) {
                 send_color_change_notification(&app_handle, &peak_level.color);
             }
 
-            tokio::time::sleep(Duration::from_secs(120)).await;
+            tokio::time::sleep(Duration::from_secs(refresh_secs)).await;
         }
     });
 
@@ -76,9 +80,9 @@ pub fn start_background_tasks(app: &AppHandle, tray_holder: Arc<TrayHolder>) {
             let stats = stats_reader::read_stats();
 
             // Update state and recompute peak level (scoped to drop MutexGuard before await)
-            let (peak_level, should_notify, should_alert_tokens, today_tokens) = {
+            let (peak_level, should_notify, should_alert_tokens, today_tokens, stats_poll_secs) = {
                 let state = app_handle2.state::<AppStateWrapper>();
-                let mut guard = state.0.lock().unwrap();
+                let mut guard = state.lock();
                 guard.stats = stats.clone();
 
                 let peak_level = compute_peak_level(
@@ -100,7 +104,11 @@ pub fn start_background_tasks(app: &AppHandle, tray_holder: Arc<TrayHolder>) {
                     .map(|threshold| today_tokens >= threshold && guard.settings.notifications_enabled)
                     .unwrap_or(false);
 
-                (peak_level, should_notify, should_alert_tokens, today_tokens)
+                // Stats file scans run at 1/4 the service-poll cadence, min 15s,
+                // so we respect the user's preference without hammering the disk.
+                let stats_poll_secs = (guard.settings.refresh_interval_secs / 4).max(15);
+
+                (peak_level, should_notify, should_alert_tokens, today_tokens, stats_poll_secs)
             }; // MutexGuard dropped here
 
             // Update tray icon (async)
@@ -122,7 +130,7 @@ pub fn start_background_tasks(app: &AppHandle, tray_holder: Arc<TrayHolder>) {
                 let _ = app_handle2.emit("token-alert", today_tokens);
             }
 
-            tokio::time::sleep(Duration::from_secs(30)).await;
+            tokio::time::sleep(Duration::from_secs(stats_poll_secs)).await;
         }
     });
 }

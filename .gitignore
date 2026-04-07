@@ -13,13 +13,27 @@ target/
 .DS_Store
 Thumbs.db
 
-# Env files
+# Env files (all variants — never let a secret slip in via .env.* or .envrc)
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
+.envrc
+
+# Secret / credential files that sometimes get dropped in a repo
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
 
 # Tauri generated
 src-tauri/gen/
 
 # Logs
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Claude Code / agent local state
+.claude/

@@ -3,6 +3,11 @@ use chrono::Utc;
 
 use crate::state::{ServiceComponent, ServiceStatus};
 
+/// Hard cap on the status-page response body. The real payload is ~30 KiB;
+/// 1 MiB leaves plenty of headroom while protecting against a
+/// misconfigured proxy or hostile MITM trying to exhaust memory.
+const MAX_STATUS_RESPONSE_BYTES: usize = 1024 * 1024;
+
 /// Statuspage.io component response shape
 #[derive(Debug, Deserialize)]
 struct StatusPageResponse {
@@ -32,6 +37,9 @@ pub async fn fetch_service_status() -> ServiceStatus {
 
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
+        .https_only(true) // refuse to fall back to plaintext if redirected
+        .min_tls_version(reqwest::tls::Version::TLS_1_2)
+        .user_agent("ClaudePeakMonitor/0.1 (+https://github.com/agencia-rse)")
         .build()
     {
         Ok(c) => c,
@@ -41,27 +49,49 @@ pub async fn fetch_service_status() -> ServiceStatus {
         }
     };
 
+    let unknown_status = || ServiceStatus {
+        components: vec![],
+        overall: "unknown".to_string(),
+        fetched_at: Utc::now().to_rfc3339(),
+    };
+
     let response = match client.get(url).send().await {
         Ok(r) => r,
         Err(e) => {
             log::warn!("Failed to fetch status page: {}", e);
-            return ServiceStatus {
-                components: vec![],
-                overall: "unknown".to_string(),
-                fetched_at: Utc::now().to_rfc3339(),
-            };
+            return unknown_status();
         }
     };
 
-    let page: StatusPageResponse = match response.json().await {
+    // Early-reject oversized payloads via Content-Length if the server sent
+    // one — avoids even starting to buffer a multi-GB response.
+    if let Some(len) = response.content_length() {
+        if len as usize > MAX_STATUS_RESPONSE_BYTES {
+            log::warn!("Status page response too large: {} bytes", len);
+            return unknown_status();
+        }
+    }
+
+    // Buffer the body. Defense in depth: the 10s client timeout above
+    // bounds the total time window, and we cap the final buffer size here
+    // for servers that lie about (or omit) Content-Length.
+    let body = match response.bytes().await {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("Failed to read status page body: {}", e);
+            return unknown_status();
+        }
+    };
+    if body.len() > MAX_STATUS_RESPONSE_BYTES {
+        log::warn!("Status page response exceeded cap: {} bytes", body.len());
+        return unknown_status();
+    }
+
+    let page: StatusPageResponse = match serde_json::from_slice(&body) {
         Ok(p) => p,
         Err(e) => {
             log::warn!("Failed to parse status page response: {}", e);
-            return ServiceStatus {
-                components: vec![],
-                overall: "unknown".to_string(),
-                fetched_at: Utc::now().to_rfc3339(),
-            };
+            return unknown_status();
         }
     };
 

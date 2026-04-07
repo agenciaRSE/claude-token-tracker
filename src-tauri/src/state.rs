@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 /// Peak color levels matching the tray icon colors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,3 +180,17 @@ impl Default for AppState {
 
 /// Wrapper so Tauri can manage it
 pub struct AppStateWrapper(pub Mutex<AppState>);
+
+impl AppStateWrapper {
+    /// Poison-safe lock helper. If another thread panicked while holding the
+    /// mutex, the guard is still returned (with a logged warning) rather than
+    /// propagating the panic into a Tauri command handler and crashing the
+    /// app. `AppState` only holds plain data (no invariants that a mid-update
+    /// panic could violate), so recovering is safe.
+    pub fn lock(&self) -> MutexGuard<'_, AppState> {
+        self.0.lock().unwrap_or_else(|poisoned| {
+            log::error!("AppState mutex was poisoned; recovering inner data");
+            poisoned.into_inner()
+        })
+    }
+}

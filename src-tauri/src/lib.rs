@@ -35,7 +35,7 @@ pub fn run() {
             // Do initial stats read
             {
                 let state = handle.state::<AppStateWrapper>();
-                let mut state_guard = state.0.lock().unwrap();
+                let mut state_guard = state.lock();
                 state_guard.stats = stats_reader::read_stats();
 
                 let peak_level = peak_engine::compute_peak_level(
@@ -52,7 +52,7 @@ pub fn run() {
             // Update tray with initial state
             {
                 let state = handle.state::<AppStateWrapper>();
-                let state_guard = state.0.lock().unwrap();
+                let state_guard = state.lock();
                 tray::update_tray(&tray_icon, state_guard.peak_level.color, state_guard.peak_level.score);
             }
 
