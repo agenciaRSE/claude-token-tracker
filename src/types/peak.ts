@@ -25,6 +25,15 @@ export interface ServiceStatus {
   fetchedAt: string;
 }
 
+/**
+ * How the user is billed for Claude. Drives the cost label and the legend
+ * shown across the UI.
+ *  - "api"          : actual pay-per-token API billing — cost = real money.
+ *  - "subscription" : flat-fee plan (Pro / Max) — cost = estimated value
+ *                     extracted from the subscription, not money owed.
+ */
+export type CostMode = "api" | "subscription";
+
 export interface UserSettings {
   timezone: string;
   notificationsEnabled: boolean;
@@ -32,6 +41,7 @@ export interface UserSettings {
   dailyTokenAlert: number | null;
   refreshIntervalSecs: number;
   autostart: boolean;
+  costMode: CostMode;
 }
 
 export const PEAK_COLORS: Record<PeakColor, string> = {

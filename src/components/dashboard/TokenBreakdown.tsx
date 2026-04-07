@@ -1,15 +1,29 @@
 import type { ModelUsageEntry } from "../../types/stats";
-import { formatTokens, formatCost, formatModelName } from "../../lib/format";
+import type { CostMode } from "../../types/peak";
+import {
+  formatTokens,
+  formatCost,
+  formatModelName,
+  getCostLabel,
+  getCostDescription,
+} from "../../lib/format";
 
 interface Props {
   models: ModelUsageEntry[];
+  costMode: CostMode;
 }
 
-export function TokenBreakdown({ models }: Props) {
+export function TokenBreakdown({ models, costMode }: Props) {
+  const costLabel = getCostLabel(costMode);
+  const costDescription = getCostDescription(costMode);
   return (
     <div className="p-3 rounded-lg bg-white/3">
-      <div className="text-[10px] text-foreground/40 mb-2">
-        Token Usage by Model
+      <div
+        className="text-[10px] text-foreground/40 mb-2 flex items-center justify-between"
+        title={costDescription}
+      >
+        <span>Token Usage by Model</span>
+        <span className="text-foreground/30 normal-case">{costLabel}</span>
       </div>
       <div className="space-y-2">
         {models.map((model) => {

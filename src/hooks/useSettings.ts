@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   dailyTokenAlert: null,
   refreshIntervalSecs: 120,
   autostart: true,
+  costMode: "api",
 };
 
 export function useSettings() {
@@ -20,9 +21,12 @@ export function useSettings() {
     loadSettings()
       .then((saved) => {
         if (saved) {
-          setSettings(saved);
+          // Merge with defaults so upgrading users get any newly added
+          // setting (e.g. costMode) populated instead of `undefined`.
+          const merged = { ...DEFAULT_SETTINGS, ...saved };
+          setSettings(merged);
           // Sync to Rust state
-          invoke("save_settings", { settings: saved }).catch(() => {});
+          invoke("save_settings", { settings: merged }).catch(() => {});
         }
         setIsLoading(false);
       })

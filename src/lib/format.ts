@@ -17,6 +17,24 @@ export function formatCost(usd: number): string {
   return "$" + usd.toFixed(2);
 }
 
+import type { CostMode } from "../types/peak";
+
+/**
+ * Short label shown above a cost figure. In API mode it's the literal
+ * money owed; in subscription mode the same number is reframed as the
+ * "API equivalent" the user would have paid on pay-per-token billing.
+ */
+export function getCostLabel(mode: CostMode): string {
+  return mode === "subscription" ? "API equiv." : "Cost";
+}
+
+/** Long form used in tooltips / aria-labels. */
+export function getCostDescription(mode: CostMode): string {
+  return mode === "subscription"
+    ? "Estimated value extracted from your Claude subscription, based on Anthropic's published API list pricing. You don't actually pay this amount — your flat monthly fee covers it."
+    : "Estimated cost based on Anthropic's published API list pricing.";
+}
+
 /** Format a model name to a short display name */
 export function formatModelName(model: string): string {
   // "claude-sonnet-4-5-20250929" -> "Sonnet 4.5"

@@ -1,6 +1,8 @@
 import { useSettings } from "../../hooks/useSettings";
 import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
+import type { CostMode } from "../../types/peak";
+import { CostLegend } from "./CostLegend";
 
 export function SettingsPanel() {
   const { settings, isLoading, updateSetting } = useSettings();
@@ -55,6 +57,21 @@ export function SettingsPanel() {
         />
       </Section>
 
+      {/* Billing & cost */}
+      <Section title="Billing & cost">
+        <SegmentedRow<CostMode>
+          label="Billing mode"
+          description="How you pay Anthropic for Claude"
+          value={settings.costMode}
+          options={[
+            { value: "api", label: "API" },
+            { value: "subscription", label: "Subscription" },
+          ]}
+          onChange={(v) => updateSetting("costMode", v)}
+        />
+        <CostLegend mode={settings.costMode} />
+      </Section>
+
       {/* Notifications */}
       <Section title="Notifications">
         <ToggleRow
@@ -89,7 +106,7 @@ export function SettingsPanel() {
             Anthropic service status, and your local Claude Code statistics.
           </p>
           <p className="text-foreground/25">
-            Data source: ~/.claude/stats-cache.json
+            Data source: ~/.claude/projects/**/*.jsonl
           </p>
         </div>
       </Section>
@@ -179,6 +196,52 @@ function SelectRow({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function SegmentedRow<T extends string>({
+  label,
+  description,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0">
+        <div className="text-xs text-foreground/70">{label}</div>
+        {description && (
+          <div className="text-[10px] text-foreground/30 mt-0.5">
+            {description}
+          </div>
+        )}
+      </div>
+      <div className="inline-flex rounded-md bg-white/5 border border-white/10 p-0.5 shrink-0">
+        {options.map((opt) => {
+          const active = opt.value === value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`text-[11px] px-2.5 py-1 rounded transition-colors ${
+                active
+                  ? "bg-white/15 text-foreground/90 shadow-sm"
+                  : "text-foreground/50 hover:text-foreground/75"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

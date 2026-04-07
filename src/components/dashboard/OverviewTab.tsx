@@ -1,13 +1,23 @@
 import { usePeakLevel } from "../../hooks/usePeakLevel";
 import { useStats } from "../../hooks/useStats";
+import { useSettings } from "../../hooks/useSettings";
 import { PEAK_COLORS, PEAK_LABELS, PEAK_GLOW_COLORS } from "../../types/peak";
 import { ServiceStatusCards } from "./ServiceStatusCards";
 import { TokenBreakdown } from "./TokenBreakdown";
-import { formatTokens, formatCost, formatRelativeTime } from "../../lib/format";
+import {
+  formatTokens,
+  formatCost,
+  formatRelativeTime,
+  getCostLabel,
+  getCostDescription,
+} from "../../lib/format";
 
 export function OverviewTab() {
   const { peakLevel } = usePeakLevel();
   const { stats } = useStats();
+  const { settings } = useSettings();
+  const costLabel = getCostLabel(settings.costMode);
+  const costDescription = getCostDescription(settings.costMode);
 
   if (!peakLevel) return null;
 
@@ -54,7 +64,11 @@ export function OverviewTab() {
           <StatCard label="Messages" value={stats.todayMessages.toString()} />
           <StatCard label="Sessions" value={stats.todaySessions.toString()} />
           <StatCard label="Tokens" value={formatTokens(stats.todayTokens)} />
-          <StatCard label="Cost" value={formatCost(stats.todayCostUsd)} />
+          <StatCard
+            label={costLabel}
+            value={formatCost(stats.todayCostUsd)}
+            title={costDescription}
+          />
         </div>
       )}
 
@@ -63,7 +77,7 @@ export function OverviewTab() {
 
       {/* Token breakdown by model */}
       {stats && stats.modelUsage.length > 0 && (
-        <TokenBreakdown models={stats.modelUsage} />
+        <TokenBreakdown models={stats.modelUsage} costMode={settings.costMode} />
       )}
     </div>
   );
@@ -98,9 +112,17 @@ function ScoreCard({
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function StatCard({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+}) {
   return (
-    <div className="p-2.5 rounded-lg bg-white/3 text-center">
+    <div className="p-2.5 rounded-lg bg-white/3 text-center" title={title}>
       <div className="text-[10px] text-foreground/40 mb-1">{label}</div>
       <div className="text-sm font-semibold text-foreground/80">{value}</div>
     </div>

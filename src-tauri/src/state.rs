@@ -132,6 +132,17 @@ pub struct ModelUsageEntry {
     pub cost_usd: f64,
 }
 
+/// How the user is billed for Claude. Drives whether the cost figures
+/// shown across the UI are actual money owed (`Api`) or a "value extracted
+/// from the subscription" estimate (`Subscription`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CostMode {
+    #[default]
+    Api,
+    Subscription,
+}
+
 /// User settings persisted via tauri-plugin-store
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -142,6 +153,8 @@ pub struct UserSettings {
     pub daily_token_alert: Option<u64>,
     pub refresh_interval_secs: u64,
     pub autostart: bool,
+    #[serde(default)]
+    pub cost_mode: CostMode,
 }
 
 impl Default for UserSettings {
@@ -153,6 +166,7 @@ impl Default for UserSettings {
             daily_token_alert: None,
             refresh_interval_secs: 120,
             autostart: true,
+            cost_mode: CostMode::Api,
         }
     }
 }
