@@ -6,14 +6,26 @@ import { PopupFooter } from "./PopupFooter";
 import { ServiceStatusRow } from "./ServiceStatusRow";
 import { usePeakLevel } from "../../hooks/usePeakLevel";
 import { useStats } from "../../hooks/useStats";
-import { PEAK_COLORS } from "../../types/peak";
+import { PEAK_COLORS, type PeakLevel } from "../../types/peak";
+
+// Fallback so the popup always has something valid to render even before
+// the first Rust response (or if it fails).
+const DEFAULT_PEAK_LEVEL: PeakLevel = {
+  color: "green",
+  score: 0,
+  timeScore: 0,
+  statusScore: 0,
+  usageScore: 0,
+  recommendation: "Waiting for data...",
+  updatedAt: new Date().toISOString(),
+};
 
 export function PopupShell() {
   const { peakLevel, isLoading } = usePeakLevel();
   const { stats } = useStats();
 
-  const color = peakLevel?.color ?? "green";
-  const borderColor = PEAK_COLORS[color];
+  const effectiveLevel = peakLevel ?? DEFAULT_PEAK_LEVEL;
+  const borderColor = PEAK_COLORS[effectiveLevel.color];
 
   return (
     <div
@@ -56,16 +68,16 @@ export function PopupShell() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col gap-3 px-4 pb-3 overflow-y-auto">
-        {isLoading ? (
+        {isLoading && !peakLevel ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-foreground/40 text-sm">Loading...</div>
           </div>
         ) : (
           <>
-            <StatusIndicator peakLevel={peakLevel!} />
+            <StatusIndicator peakLevel={effectiveLevel} />
             <QuickStats stats={stats} />
             <ServiceStatusRow />
-            <Recommendation peakLevel={peakLevel!} />
+            <Recommendation peakLevel={effectiveLevel} />
           </>
         )}
       </div>

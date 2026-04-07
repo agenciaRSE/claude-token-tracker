@@ -10,58 +10,64 @@ import {
 import { onShowNotification, onTokenAlert } from "./lib/events";
 import { formatTokens } from "./lib/format";
 
-export default function App() {
-  const [windowLabel, setWindowLabel] = useState<string>("");
+// Detect window label synchronously at module load time so the first render
+// already knows which shell to mount (avoids blank window flashes).
+function detectWindowLabel(): string {
+  try {
+    return getCurrentWindow().label || "popup";
+  } catch (err) {
+    console.error("Failed to detect window label:", err);
+    return "popup";
+  }
+}
 
-  useEffect(() => {
-    // Detect which window we're in
-    const label = getCurrentWindow().label;
-    setWindowLabel(label);
-  }, []);
+export default function App() {
+  const [windowLabel] = useState<string>(detectWindowLabel);
 
   // Handle notifications from Rust backend
   useEffect(() => {
-    const setupNotifications = async () => {
-      let permitted = await isPermissionGranted();
-      if (!permitted) {
-        const permission = await requestPermission();
-        permitted = permission === "granted";
-      }
+    let cleanup: (() => void) | undefined;
 
-      if (permitted) {
-        const unlistenNotif = onShowNotification(({ title, body }) => {
+    const setupNotifications = async () => {
+      try {
+        let permitted = await isPermissionGranted();
+        if (!permitted) {
+          const permission = await requestPermission();
+          permitted = permission === "granted";
+        }
+
+        if (!permitted) return;
+
+        const unlistenNotif = await onShowNotification(({ title, body }) => {
           sendNotification({ title, body });
         });
 
-        const unlistenAlert = onTokenAlert((tokens) => {
+        const unlistenAlert = await onTokenAlert((tokens) => {
           sendNotification({
             title: "Daily Token Alert",
             body: `You've used ${formatTokens(tokens)} tokens today.`,
           });
         });
 
-        return () => {
-          unlistenNotif.then((fn) => fn());
-          unlistenAlert.then((fn) => fn());
+        cleanup = () => {
+          unlistenNotif();
+          unlistenAlert();
         };
+      } catch (err) {
+        console.error("Failed to setup notifications:", err);
       }
     };
 
     setupNotifications();
+
+    return () => {
+      cleanup?.();
+    };
   }, []);
-
-  if (!windowLabel) {
-    return null; // Wait for label detection
-  }
-
-  if (windowLabel === "popup") {
-    return <PopupShell />;
-  }
 
   if (windowLabel === "dashboard") {
     return <DashboardShell />;
   }
 
-  // Fallback
   return <PopupShell />;
 }
