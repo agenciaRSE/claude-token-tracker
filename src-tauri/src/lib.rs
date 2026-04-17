@@ -4,6 +4,7 @@ mod scheduler;
 mod state;
 mod stats_reader;
 mod status_poller;
+mod subscription_tracker;
 mod tray;
 
 use std::sync::Arc;
@@ -24,6 +25,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_peak_level,
             commands::get_stats,
+            commands::get_project_analytics,
+            commands::get_analytics_for_range,
+            commands::get_subscription_usage,
             commands::get_service_status,
             commands::get_settings,
             commands::save_settings,
@@ -36,7 +40,11 @@ pub fn run() {
             {
                 let state = handle.state::<AppStateWrapper>();
                 let mut state_guard = state.lock();
-                state_guard.stats = stats_reader::read_stats();
+                let (stats, analytics, samples) = stats_reader::read_all_with_samples();
+                state_guard.stats = stats;
+                state_guard.analytics = analytics;
+                state_guard.subscription_usage =
+                    subscription_tracker::compute(&samples, &state_guard.settings);
 
                 let peak_level = peak_engine::compute_peak_level(
                     &state_guard.stats,
@@ -67,5 +75,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Claude Peak Monitor");
+        .expect("error while running Claude Consume and Peak Monitor");
 }

@@ -1,6 +1,11 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { PeakLevel, ServiceStatus } from "../types/peak";
+import type { ProjectAnalytics } from "../types/analytics";
 import type { ClaudeStats } from "../types/stats";
+import type {
+  SubscriptionUsage,
+  SubscriptionWarning,
+} from "../types/subscription";
 
 export function onPeakLevelChanged(
   callback: (level: PeakLevel) => void,
@@ -22,6 +27,30 @@ export function onServiceStatusUpdated(
   callback: (status: ServiceStatus) => void,
 ): Promise<UnlistenFn> {
   return listen<ServiceStatus>("service-status-updated", (event) => {
+    callback(event.payload);
+  });
+}
+
+export function onSubscriptionUpdated(
+  callback: (usage: SubscriptionUsage) => void,
+): Promise<UnlistenFn> {
+  return listen<SubscriptionUsage>("subscription-updated", (event) => {
+    callback(event.payload);
+  });
+}
+
+export function onSubscriptionWarning(
+  callback: (warning: SubscriptionWarning) => void,
+): Promise<UnlistenFn> {
+  return listen<SubscriptionWarning>("subscription-warning", (event) => {
+    callback(event.payload);
+  });
+}
+
+export function onAnalyticsUpdated(
+  callback: (analytics: ProjectAnalytics) => void,
+): Promise<UnlistenFn> {
+  return listen<ProjectAnalytics>("analytics-updated", (event) => {
     callback(event.payload);
   });
 }

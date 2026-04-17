@@ -1,7 +1,10 @@
 use tauri::State;
 
 use crate::peak_engine::compute_peak_level;
-use crate::state::{AppStateWrapper, ClaudeStats, PeakLevel, ServiceStatus, UserSettings};
+use crate::state::{
+    AppStateWrapper, ClaudeStats, PeakLevel, ProjectAnalytics, ServiceStatus, SubscriptionUsage,
+    TimeRange, UserSettings,
+};
 use crate::stats_reader;
 use crate::status_poller;
 
@@ -15,6 +18,31 @@ pub fn get_peak_level(state: State<'_, AppStateWrapper>) -> PeakLevel {
 #[tauri::command]
 pub fn get_stats(state: State<'_, AppStateWrapper>) -> ClaudeStats {
     state.lock().stats.clone()
+}
+
+/// Get the current project analytics
+#[tauri::command]
+pub fn get_project_analytics(state: State<'_, AppStateWrapper>) -> ProjectAnalytics {
+    state.lock().analytics.clone()
+}
+
+/// Get project analytics filtered by a specific time range. Performs a fresh
+/// scan of the JSONL files since the cached baseline is always Last30Days.
+/// Offloaded to spawn_blocking so it doesn't stall the async runtime.
+#[tauri::command]
+pub async fn get_analytics_for_range(range: TimeRange) -> Result<ProjectAnalytics, String> {
+    let (_stats, analytics) = tokio::task::spawn_blocking(move || {
+        stats_reader::read_all_with_range(range)
+    })
+    .await
+    .map_err(|e| format!("analytics scan failed: {}", e))?;
+    Ok(analytics)
+}
+
+/// Get the current subscription-plan usage snapshot (5h session + weekly).
+#[tauri::command]
+pub fn get_subscription_usage(state: State<'_, AppStateWrapper>) -> SubscriptionUsage {
+    state.lock().subscription_usage.clone()
 }
 
 /// Get the current service status
@@ -31,24 +59,88 @@ pub fn get_settings(state: State<'_, AppStateWrapper>) -> UserSettings {
 
 /// Save user settings. Values are clamped/validated so a corrupted store file
 /// or a malicious renderer message can't put the backend into a bad state.
+/// After saving, subscription usage is recomputed since the plan/limits/
+/// reset schedule changed the percentages displayed.
 #[tauri::command]
 pub fn save_settings(state: State<'_, AppStateWrapper>, settings: UserSettings) -> Result<(), String> {
     let sanitized = validate_settings(settings)?;
-    state.lock().settings = sanitized;
+    let mut guard = state.lock();
+    guard.settings = sanitized;
+    // Recompute subscription_usage from the existing state's samples is
+    // impossible without rescanning, so we just update the limits in the
+    // current usage snapshot using the fresh settings. The next scheduler
+    // tick will produce a fully recomputed snapshot.
+    let plan = guard.settings.subscription_plan;
+    let session_limit = if guard.settings.session_token_limit > 0 {
+        guard.settings.session_token_limit
+    } else {
+        plan.default_session_tokens()
+    };
+    let weekly_limit = if guard.settings.weekly_token_limit > 0 {
+        guard.settings.weekly_token_limit
+    } else {
+        plan.default_weekly_tokens()
+    };
+    guard.subscription_usage.session_limit_tokens = session_limit;
+    guard.subscription_usage.week_limit_tokens = weekly_limit;
+    if session_limit > 0 {
+        let p = (guard.subscription_usage.session_tokens as f64 / session_limit as f64) * 100.0;
+        guard.subscription_usage.session_pct = p.clamp(0.0, 999.0) as u16;
+        guard.subscription_usage.session_extra_cost_usd = recompute_extra(
+            guard.subscription_usage.session_tokens,
+            session_limit,
+            guard.subscription_usage.session_cost_usd,
+        );
+    }
+    if weekly_limit > 0 {
+        let p = (guard.subscription_usage.week_tokens as f64 / weekly_limit as f64) * 100.0;
+        guard.subscription_usage.week_pct = p.clamp(0.0, 999.0) as u16;
+        guard.subscription_usage.week_extra_cost_usd = recompute_extra(
+            guard.subscription_usage.week_tokens,
+            weekly_limit,
+            guard.subscription_usage.week_cost_usd,
+        );
+    }
     Ok(())
 }
+
+fn recompute_extra(tokens: u64, limit: u64, total_cost: f64) -> f64 {
+    if limit == 0 || tokens <= limit || tokens == 0 {
+        return 0.0;
+    }
+    let overflow = (tokens - limit) as f64;
+    (overflow * (total_cost / tokens as f64)).max(0.0)
+}
+
+/// Minimum interval between force_refresh calls (prevents DoS via rapid IPC).
+const FORCE_REFRESH_COOLDOWN_SECS: u64 = 5;
 
 /// Force refresh all data sources
 #[tauri::command]
 pub async fn force_refresh(state: State<'_, AppStateWrapper>) -> Result<PeakLevel, String> {
-    // Fetch fresh data
-    let stats = stats_reader::read_stats();
+    // SECURITY: rate-limit force_refresh to prevent a misbehaving renderer
+    // from triggering continuous filesystem scans + outbound HTTP requests.
+    {
+        let guard = state.lock();
+        if let Some(last) = guard.last_force_refresh {
+            if last.elapsed().as_secs() < FORCE_REFRESH_COOLDOWN_SECS {
+                return Ok(guard.peak_level.clone());
+            }
+        }
+    }
+
+    // Fetch fresh data — wrap blocking scan in spawn_blocking.
+    let (stats, analytics) = tokio::task::spawn_blocking(stats_reader::read_all)
+        .await
+        .unwrap_or_default();
     let service_status = status_poller::fetch_service_status().await;
 
     // Update state
     let mut state_guard = state.lock();
     state_guard.stats = stats;
+    state_guard.analytics = analytics;
     state_guard.service_status = service_status;
+    state_guard.last_force_refresh = Some(std::time::Instant::now());
 
     let peak_level = compute_peak_level(
         &state_guard.stats,
@@ -74,7 +166,7 @@ pub async fn force_refresh(state: State<'_, AppStateWrapper>) -> Result<PeakLeve
 ///    avoid nonsense values showing up on the dashboard.
 fn validate_settings(mut s: UserSettings) -> Result<UserSettings, String> {
     const MAX_TIMEZONE_LEN: usize = 64;
-    const MIN_REFRESH: u64 = 10;
+    const MIN_REFRESH: u64 = 30;
     const MAX_REFRESH: u64 = 3600;
     const MAX_DAILY_TOKEN_ALERT: u64 = 1_000_000_000;
 
@@ -98,6 +190,15 @@ fn validate_settings(mut s: UserSettings) -> Result<UserSettings, String> {
     if let Some(threshold) = s.daily_token_alert {
         s.daily_token_alert = Some(threshold.min(MAX_DAILY_TOKEN_ALERT));
     }
+
+    // Subscription bounds: clamp to sane ranges so a corrupted store can't
+    // produce NaN percentages or pick an invalid weekday.
+    const MAX_SUB_TOKEN_LIMIT: u64 = 10_000_000_000; // 10B
+    s.session_token_limit = s.session_token_limit.min(MAX_SUB_TOKEN_LIMIT);
+    s.weekly_token_limit = s.weekly_token_limit.min(MAX_SUB_TOKEN_LIMIT);
+    s.weekly_reset_weekday = s.weekly_reset_weekday.min(6);
+    s.weekly_reset_hour = s.weekly_reset_hour.min(23);
+    s.subscription_warn_pct = s.subscription_warn_pct.clamp(10, 100);
 
     Ok(s)
 }
