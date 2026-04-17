@@ -11,6 +11,13 @@ const DEFAULT_SETTINGS: UserSettings = {
   refreshIntervalSecs: 120,
   autostart: true,
   costMode: "api",
+  subscriptionPlan: "pro",
+  sessionTokenLimit: 0,
+  weeklyTokenLimit: 0,
+  weeklyResetWeekday: 1, // Monday
+  weeklyResetHour: 0,
+  subscriptionWarnPct: 80,
+  subscriptionWarningsEnabled: true,
 };
 
 export function useSettings() {

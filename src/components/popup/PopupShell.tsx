@@ -4,8 +4,10 @@ import { QuickStats } from "./QuickStats";
 import { Recommendation } from "./Recommendation";
 import { PopupFooter } from "./PopupFooter";
 import { ServiceStatusRow } from "./ServiceStatusRow";
+import { SubscriptionBars } from "./SubscriptionBars";
 import { usePeakLevel } from "../../hooks/usePeakLevel";
-import { useStats } from "../../hooks/useStats";
+import { useSettings } from "../../hooks/useSettings";
+import { useSubscriptionUsage } from "../../hooks/useSubscriptionUsage";
 import { PEAK_COLORS, type PeakLevel } from "../../types/peak";
 
 // Fallback so the popup always has something valid to render even before
@@ -22,10 +24,14 @@ const DEFAULT_PEAK_LEVEL: PeakLevel = {
 
 export function PopupShell() {
   const { peakLevel, isLoading } = usePeakLevel();
-  const { stats } = useStats();
+  const { settings } = useSettings();
+  const subscriptionUsage = useSubscriptionUsage();
 
   const effectiveLevel = peakLevel ?? DEFAULT_PEAK_LEVEL;
   const borderColor = PEAK_COLORS[effectiveLevel.color];
+
+  const showSubscriptionBars =
+    settings.costMode === "subscription" && subscriptionUsage !== null;
 
   return (
     <div
@@ -52,7 +58,7 @@ export function PopupShell() {
             className="text-xs font-medium text-foreground/70"
             data-tauri-drag-region
           >
-            Claude Peak Monitor
+            Claude Consume and Peak Monitor
           </span>
         </div>
         <button
@@ -79,8 +85,14 @@ export function PopupShell() {
           </div>
         ) : (
           <>
+            {/* Subscription bars pinned to the top of the widget when the
+                user is on a subscription plan — session + weekly limits
+                with countdown timers, mirroring the Claude Desktop Usage UI. */}
+            {showSubscriptionBars && subscriptionUsage && (
+              <SubscriptionBars usage={subscriptionUsage} />
+            )}
             <StatusIndicator peakLevel={effectiveLevel} />
-            <QuickStats stats={stats} />
+            <QuickStats usage={subscriptionUsage} costMode={settings.costMode} />
             <ServiceStatusRow />
             <Recommendation peakLevel={effectiveLevel} />
           </>

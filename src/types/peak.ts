@@ -34,6 +34,8 @@ export interface ServiceStatus {
  */
 export type CostMode = "api" | "subscription";
 
+export type SubscriptionPlan = "pro" | "max5x" | "max20x" | "custom";
+
 export interface UserSettings {
   timezone: string;
   notificationsEnabled: boolean;
@@ -42,6 +44,14 @@ export interface UserSettings {
   refreshIntervalSecs: number;
   autostart: boolean;
   costMode: CostMode;
+  // Subscription tracking (only applied when costMode === "subscription")
+  subscriptionPlan: SubscriptionPlan;
+  sessionTokenLimit: number;       // 0 = plan default
+  weeklyTokenLimit: number;        // 0 = plan default
+  weeklyResetWeekday: number;      // 0=Sunday ... 6=Saturday
+  weeklyResetHour: number;         // 0-23 UTC
+  subscriptionWarnPct: number;     // 10-100
+  subscriptionWarningsEnabled: boolean;
 }
 
 export const PEAK_COLORS: Record<PeakColor, string> = {

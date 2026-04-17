@@ -55,6 +55,32 @@ export function formatHour(hour: number): string {
   return `${hour - 12} PM`;
 }
 
+/** Format a duration in seconds as a compact countdown.
+ *   3661 -> "1h 01m"
+ *   90   -> "1m 30s"
+ *   86400*2 + 3600*3 -> "2d 3h"
+ */
+export function formatDuration(totalSeconds: number): string {
+  if (totalSeconds <= 0) return "now";
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  return `${seconds}s`;
+}
+
+/** Given a subscription usage percentage, return a color token. */
+export function usagePctColor(pct: number): string {
+  if (pct >= 100) return "#ef4444"; // red
+  if (pct >= 90) return "#f97316";  // orange
+  if (pct >= 70) return "#eab308";  // yellow
+  return "#22c55e";                 // green
+}
+
 /** Format relative time: ISO string -> "2 min ago" */
 export function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();

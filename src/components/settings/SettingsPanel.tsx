@@ -1,7 +1,8 @@
 import { useSettings } from "../../hooks/useSettings";
 import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
-import type { CostMode } from "../../types/peak";
+import type { CostMode, SubscriptionPlan } from "../../types/peak";
+import { WEEKDAY_LABELS } from "../../types/subscription";
 import { CostLegend } from "./CostLegend";
 
 export function SettingsPanel() {
@@ -37,7 +38,7 @@ export function SettingsPanel() {
       <Section title="General">
         <ToggleRow
           label="Start on system boot"
-          description="Launch Claude Peak Monitor when you log in"
+          description="Launch Claude Consume and Peak Monitor when you log in"
           checked={autostartEnabled}
           onChange={toggleAutostart}
         />
@@ -72,6 +73,75 @@ export function SettingsPanel() {
         <CostLegend mode={settings.costMode} />
       </Section>
 
+      {/* Subscription limits — only relevant when on a subscription plan */}
+      {settings.costMode === "subscription" && (
+        <Section title="Subscription limits">
+          <SegmentedRow<SubscriptionPlan>
+            label="Plan"
+            description="Used to pick default session + weekly token budgets"
+            value={settings.subscriptionPlan}
+            options={[
+              { value: "pro", label: "Pro" },
+              { value: "max5x", label: "Max 5×" },
+              { value: "max20x", label: "Max 20×" },
+              { value: "custom", label: "Custom" },
+            ]}
+            onChange={(v) => updateSetting("subscriptionPlan", v)}
+          />
+          <NumberRow
+            label="Session token limit (0 = plan default)"
+            value={settings.sessionTokenLimit}
+            min={0}
+            max={10_000_000_000}
+            step={1_000_000}
+            onChange={(v) => updateSetting("sessionTokenLimit", v)}
+          />
+          <NumberRow
+            label="Weekly token limit (0 = plan default)"
+            value={settings.weeklyTokenLimit}
+            min={0}
+            max={10_000_000_000}
+            step={10_000_000}
+            onChange={(v) => updateSetting("weeklyTokenLimit", v)}
+          />
+          <SelectRow
+            label="Weekly reset day"
+            value={WEEKDAY_LABELS[settings.weeklyResetWeekday] ?? "Monday"}
+            options={[...WEEKDAY_LABELS]}
+            onChange={(v) =>
+              updateSetting("weeklyResetWeekday", WEEKDAY_LABELS.indexOf(v as (typeof WEEKDAY_LABELS)[number]))
+            }
+          />
+          <NumberRow
+            label="Weekly reset hour (UTC)"
+            value={settings.weeklyResetHour}
+            min={0}
+            max={23}
+            step={1}
+            onChange={(v) => updateSetting("weeklyResetHour", v)}
+          />
+          <NumberRow
+            label="Warning threshold (%)"
+            value={settings.subscriptionWarnPct}
+            min={10}
+            max={100}
+            step={5}
+            onChange={(v) => updateSetting("subscriptionWarnPct", v)}
+          />
+          <ToggleRow
+            label="Enable subscription warnings"
+            description="Notify once per session/week when the threshold is crossed"
+            checked={settings.subscriptionWarningsEnabled}
+            onChange={(v) => updateSetting("subscriptionWarningsEnabled", v)}
+          />
+          <div className="text-[10px] text-foreground/30 leading-relaxed">
+            Default limits are rough community estimates — if they drift from
+            what you see in Claude Desktop, switch to Custom and enter your
+            own values.
+          </div>
+        </Section>
+      )}
+
       {/* Notifications */}
       <Section title="Notifications">
         <ToggleRow
@@ -100,7 +170,7 @@ export function SettingsPanel() {
       {/* About */}
       <Section title="About">
         <div className="text-xs text-foreground/40 space-y-1">
-          <p>Claude Peak Monitor v0.1.0</p>
+          <p>Claude Consume and Peak Monitor v0.1.0</p>
           <p>
             Monitors Claude AI peak usage hours using time patterns,
             Anthropic service status, and your local Claude Code statistics.
@@ -270,7 +340,11 @@ function NumberRow({
         min={min}
         max={max}
         step={step}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onChange={(e) => {
+          const raw = Number(e.target.value);
+          if (!Number.isFinite(raw)) return;
+          onChange(Math.max(min, Math.min(max, Math.round(raw))));
+        }}
         className="text-xs bg-white/5 border border-white/10 rounded-md px-2 py-1 text-foreground/70 outline-none focus:border-white/20 w-24 text-right"
       />
     </div>

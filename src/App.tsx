@@ -7,8 +7,12 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
-import { onShowNotification, onTokenAlert } from "./lib/events";
-import { formatTokens } from "./lib/format";
+import {
+  onShowNotification,
+  onTokenAlert,
+  onSubscriptionWarning,
+} from "./lib/events";
+import { formatTokens, formatDuration } from "./lib/format";
 
 // Detect window label synchronously at module load time so the first render
 // already knows which shell to mount (avoids blank window flashes).
@@ -49,9 +53,18 @@ export default function App() {
           });
         });
 
+        const unlistenSub = await onSubscriptionWarning(({ scope, pct, secondsToReset }) => {
+          const scopeLabel = scope === "session" ? "5-hour session" : "weekly";
+          sendNotification({
+            title: `Claude ${scopeLabel} usage at ${pct}%`,
+            body: `Resets in ${formatDuration(secondsToReset)}. Consider deferring heavy tasks.`,
+          });
+        });
+
         cleanup = () => {
           unlistenNotif();
           unlistenAlert();
+          unlistenSub();
         };
       } catch (err) {
         console.error("Failed to setup notifications:", err);
