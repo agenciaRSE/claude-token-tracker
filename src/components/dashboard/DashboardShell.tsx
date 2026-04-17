@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { TitleBar } from "./TitleBar";
 import { OverviewTab } from "./OverviewTab";
 import { HistoryTab } from "./HistoryTab";
+import { AnalyticsTab } from "./AnalyticsTab";
 import { SettingsPanel } from "../settings/SettingsPanel";
 import { onNavigateSettings } from "../../lib/events";
 
@@ -32,6 +33,7 @@ export function DashboardShell() {
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === "overview" && <OverviewTab />}
         {activeTab === "history" && <HistoryTab />}
+        {activeTab === "analytics" && <AnalyticsTab />}
         {activeTab === "settings" && <SettingsPanel />}
       </div>
     </div>

@@ -8,6 +8,7 @@ interface Props {
 const TABS = [
   { id: "overview", label: "Overview" },
   { id: "history", label: "History" },
+  { id: "analytics", label: "Analytics" },
   { id: "settings", label: "Settings" },
 ];
 
