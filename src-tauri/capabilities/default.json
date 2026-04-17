@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Claude Peak Monitor permissions",
+  "description": "Claude Consume and Peak Monitor permissions",
   "windows": ["popup", "dashboard"],
   "permissions": [
     "core:default",

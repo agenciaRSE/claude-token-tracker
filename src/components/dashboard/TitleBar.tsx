@@ -37,7 +37,7 @@ export function TitleBar({ activeTab, onTabChange }: Props) {
             className="text-xs font-semibold text-foreground/80"
             data-tauri-drag-region
           >
-            Peak Monitor
+            Claude Consume and Peak Monitor
           </span>
         </div>
 

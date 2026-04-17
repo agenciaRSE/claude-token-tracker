@@ -1,6 +1,6 @@
-# Claude Peak Monitor
+# Claude Consume and Peak Monitor
 
-Cross-platform system tray app (Windows + macOS) that notifies about Claude AI peak usage hours with color-coded indicators.
+Cross-platform system tray app (Windows + macOS) that tracks Claude AI consumption (per project, session, mode, and subscription-plan limits) and notifies about peak usage hours with color-coded indicators.
 
 ## Tech Stack
 - **Framework**: Tauri 2 (Rust backend + webview frontend)

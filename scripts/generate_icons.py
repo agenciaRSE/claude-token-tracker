@@ -19,7 +19,7 @@ from typing import Iterable
 
 from PIL import Image, ImageDraw, ImageFilter
 
-# Peak Monitor brand colors, matching src-tauri/src/state.rs::PeakColor::rgba
+# Brand colors, matching src-tauri/src/state.rs::PeakColor::rgba
 PRIMARY = (34, 197, 94)      # #22c55e — green
 PRIMARY_DARK = (21, 128, 61) # #15803d — darker green for gradient edge
 ACCENT = (240, 253, 244)     # very light green for inner dot

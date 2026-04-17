@@ -1,4 +1,4 @@
-# Claude Peak Monitor
+# Claude Consume and Peak Monitor
 
 System tray app that watches Claude AI peak usage hours and your local
 Claude Code consumption, then surfaces a color-coded indicator (green →
@@ -33,10 +33,10 @@ application — pick the one that matches how you deploy software.
 
 ### Option 1 — NSIS `.exe` (recommended for most users)
 
-**File:** `Claude Peak Monitor_0.1.0_x64-setup.exe` (~3.1 MB)
+**File:** `Claude Consume and Peak Monitor_0.1.0_x64-setup.exe` (~3.1 MB)
 
 - Per-user install — no admin / UAC prompt required.
-- Installs to `%LOCALAPPDATA%\Programs\Claude Peak Monitor\`.
+- Installs to `%LOCALAPPDATA%\Programs\Claude Consume and Peak Monitor\`.
 - Adds a Start Menu shortcut and an entry under
   *Settings → Apps → Installed apps* for clean uninstall.
 - Works on Windows 10 1809+ and Windows 11.
@@ -46,18 +46,18 @@ application — pick the one that matches how you deploy software.
 **Silent install** (e.g. for scripted machine setup):
 
 ```powershell
-.\"Claude Peak Monitor_0.1.0_x64-setup.exe" /S
+.\"Claude Consume and Peak Monitor_0.1.0_x64-setup.exe" /S
 ```
 
 **Silent uninstall:**
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\Claude Peak Monitor\uninstall.exe" /S
+& "$env:LOCALAPPDATA\Programs\Claude Consume and Peak Monitor\uninstall.exe" /S
 ```
 
 ### Option 2 — MSI (for IT admins, GPO, Intune, SCCM)
 
-**File:** `Claude Peak Monitor_0.1.0_x64_en-US.msi` (~4.5 MB)
+**File:** `Claude Consume and Peak Monitor_0.1.0_x64_en-US.msi` (~4.5 MB)
 
 - Standard Windows Installer package — perfect for managed deployment.
 - Per-machine install (`ALLUSERS=1` is the WiX default), so it does
@@ -68,19 +68,19 @@ application — pick the one that matches how you deploy software.
 **Silent install:**
 
 ```powershell
-msiexec /i "Claude Peak Monitor_0.1.0_x64_en-US.msi" /qn /norestart
+msiexec /i "Claude Consume and Peak Monitor_0.1.0_x64_en-US.msi" /qn /norestart
 ```
 
 **Silent uninstall:**
 
 ```powershell
-msiexec /x "Claude Peak Monitor_0.1.0_x64_en-US.msi" /qn /norestart
+msiexec /x "Claude Consume and Peak Monitor_0.1.0_x64_en-US.msi" /qn /norestart
 ```
 
 **Logged install** (useful for debugging deployment issues):
 
 ```powershell
-msiexec /i "Claude Peak Monitor_0.1.0_x64_en-US.msi" /qn /l*v install.log
+msiexec /i "Claude Consume and Peak Monitor_0.1.0_x64_en-US.msi" /qn /l*v install.log
 ```
 
 ### Which one should I use?
@@ -96,7 +96,7 @@ msiexec /i "Claude Peak Monitor_0.1.0_x64_en-US.msi" /qn /l*v install.log
 
 ## After installing
 
-1. Launch **Claude Peak Monitor** from the Start Menu.
+1. Launch **Claude Consume and Peak Monitor** from the Start Menu.
 2. The app drops into the system tray (look for the colored circle near
    the clock). The main window stays hidden — left-click the tray icon
    to open the popup, right-click to open the full dashboard.
@@ -107,7 +107,7 @@ msiexec /i "Claude Peak Monitor_0.1.0_x64_en-US.msi" /qn /l*v install.log
 
 | Thing | Path |
 |---|---|
-| Application binary | `%LOCALAPPDATA%\Programs\Claude Peak Monitor\` (NSIS) or `%PROGRAMFILES%\Claude Peak Monitor\` (MSI) |
+| Application binary | `%LOCALAPPDATA%\Programs\Claude Consume and Peak Monitor\` (NSIS) or `%PROGRAMFILES%\Claude Consume and Peak Monitor\` (MSI) |
 | User settings | `%APPDATA%\com.agencia-rse.claude-peak-monitor\store.json` |
 | Source data the app reads | `~/.claude/projects/**/*.jsonl` (read-only) |
 
@@ -143,8 +143,8 @@ Output:
 src-tauri/target/release/
 ├── claude-peak-monitor.exe                                  # Portable binary
 └── bundle/
-    ├── nsis/Claude Peak Monitor_0.1.0_x64-setup.exe        # NSIS installer
-    └── msi/Claude Peak Monitor_0.1.0_x64_en-US.msi         # MSI installer
+    ├── nsis/Claude Consume and Peak Monitor_0.1.0_x64-setup.exe        # NSIS installer
+    └── msi/Claude Consume and Peak Monitor_0.1.0_x64_en-US.msi         # MSI installer
 ```
 
 To regenerate the icons (Python + Pillow required):

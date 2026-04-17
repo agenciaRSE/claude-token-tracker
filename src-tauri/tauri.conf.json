@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Claude Peak Monitor",
+  "productName": "Claude Consume and Peak Monitor",
   "version": "0.1.0",
   "identifier": "com.agencia-rse.claude-peak-monitor",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "popup",
-        "title": "Claude Peak Monitor",
+        "title": "Claude Consume and Peak Monitor",
         "width": 320,
         "height": 480,
         "resizable": false,
@@ -26,7 +26,7 @@
       },
       {
         "label": "dashboard",
-        "title": "Claude Peak Monitor - Dashboard",
+        "title": "Claude Consume and Peak Monitor - Dashboard",
         "width": 680,
         "height": 560,
         "minWidth": 560,

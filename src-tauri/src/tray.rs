@@ -71,7 +71,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
 
     let tray = TrayIconBuilder::new()
         .icon(color_to_image(PeakColor::Green))
-        .tooltip("Claude Peak Monitor - Loading...")
+        .tooltip("Claude Consume and Peak Monitor - Loading...")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
@@ -131,7 +131,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<TrayIcon> {
 pub fn update_tray(tray: &TrayIcon, color: PeakColor, score: u8) {
     let _ = tray.set_icon(Some(color_to_image(color)));
     let tooltip = format!(
-        "Claude Peak Monitor - {} ({}/100)",
+        "Claude Consume and Peak Monitor - {} ({}/100)",
         color.label(),
         score
     );
