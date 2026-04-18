@@ -126,8 +126,8 @@ Requirements:
 - For MSI bundling: WiX v3 (Tauri downloads it on first build)
 
 ```bash
-git clone https://github.com/agenciaRSE/claude-peak-monitor.git
-cd claude-peak-monitor
+git clone https://github.com/agenciaRSE/claude-token-tracker.git
+cd claude-token-tracker
 pnpm install
 
 # Run in dev mode
