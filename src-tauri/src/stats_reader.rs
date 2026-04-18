@@ -492,14 +492,21 @@ fn process_file_handle(
                 agg.today_messages = agg.today_messages.saturating_add(1);
             }
             // Per-project / mode / session message counts.
-            agg.project_agg
-                .entry(project_dir.to_string())
-                .or_default()
-                .messages = agg.project_agg[project_dir].messages.saturating_add(1);
-            agg.mode_agg
-                .entry(mode.to_string())
-                .or_default()
-                .messages = agg.mode_agg[mode].messages.saturating_add(1);
+            // NB: assigning to `entry().or_default().<field> = <map>[key].<field>…`
+            // panics because Rust evaluates the RHS first — at that point the
+            // entry is still absent and HashMap's Index impl panics.
+            // Instead, take the mutable ref once and increment in place.
+            {
+                let pa = agg
+                    .project_agg
+                    .entry(project_dir.to_string())
+                    .or_default();
+                pa.messages = pa.messages.saturating_add(1);
+            }
+            {
+                let ma = agg.mode_agg.entry(mode.to_string()).or_default();
+                ma.messages = ma.messages.saturating_add(1);
+            }
             if let Some(sa) = agg.session_agg.get_mut(&sid) {
                 sa.messages = sa.messages.saturating_add(1);
                 if ts.as_str() > sa.last_ts.as_str() {
