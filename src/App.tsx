@@ -11,8 +11,10 @@ import {
   onShowNotification,
   onTokenAlert,
   onSubscriptionWarning,
+  onPlaySound,
 } from "./lib/events";
 import { formatTokens, formatDuration } from "./lib/format";
+import { playSound, isValidSoundId } from "./lib/sounds";
 
 // Detect window label synchronously at module load time so the first render
 // already knows which shell to mount (avoids blank window flashes).
@@ -61,10 +63,24 @@ export default function App() {
           });
         });
 
+        // Sound alerts: only registered in the popup window so that we
+        // don't play each tone twice when the dashboard is also open.
+        // Both windows listen for OS notifications (they're deduplicated
+        // by the system); sound is single-owner.
+        let unlistenSound: (() => void) | undefined;
+        if (windowLabel === "popup") {
+          unlistenSound = await onPlaySound(({ soundId, volume }) => {
+            if (isValidSoundId(soundId)) {
+              playSound(soundId, volume);
+            }
+          });
+        }
+
         cleanup = () => {
           unlistenNotif();
           unlistenAlert();
           unlistenSub();
+          unlistenSound?.();
         };
       } catch (err) {
         console.error("Failed to setup notifications:", err);
@@ -76,7 +92,7 @@ export default function App() {
     return () => {
       cleanup?.();
     };
-  }, []);
+  }, [windowLabel]);
 
   if (windowLabel === "dashboard") {
     return <DashboardShell />;

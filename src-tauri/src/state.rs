@@ -311,15 +311,58 @@ pub struct UserSettings {
     #[serde(default)]
     pub weekly_reset_hour: u8,
     /// Warning threshold as a percentage (0-100). Default 80.
+    /// NOTE: kept for backward compatibility with v0.1 settings files, but
+    /// the scheduler now reads from `usage_warning_thresholds` (multi-value).
     #[serde(default = "default_warn_pct")]
     pub subscription_warn_pct: u8,
     /// Whether to fire OS notifications when the threshold is crossed.
     #[serde(default = "default_true")]
     pub subscription_warnings_enabled: bool,
+
+    // ── Alert triggers (NEW — which events fire notifications/sounds) ──
+    /// Fire notification when a brand-new 5-hour session begins (first
+    /// assistant message after a >= 5h idle period).
+    #[serde(default = "default_true")]
+    pub alert_session_start: bool,
+    /// Fire notification when the active 5-hour session expires (idle gap).
+    #[serde(default = "default_true")]
+    pub alert_session_end: bool,
+    /// Percentage checkpoints at which a session/weekly usage warning
+    /// should fire. Each threshold fires at most once per window. Sorted
+    /// ascending; values outside [1, 200] are ignored by the scheduler.
+    #[serde(default = "default_usage_thresholds")]
+    pub usage_warning_thresholds: Vec<u8>,
+
+    // ── Sound system (NEW) ────────────────────────────────────────────
+    /// Master on/off for sound alerts. OS notifications are independent
+    /// and controlled by `notifications_enabled`.
+    #[serde(default = "default_true")]
+    pub sounds_enabled: bool,
+    /// Sound volume 0-100. Applied to every preset.
+    #[serde(default = "default_sound_volume")]
+    pub sound_volume: u8,
+    /// Preset id played when the peak color changes.
+    #[serde(default = "default_sound_peak")]
+    pub sound_peak_change: String,
+    /// Preset id played when a new 5-hour session begins.
+    #[serde(default = "default_sound_session_start")]
+    pub sound_session_start: String,
+    /// Preset id played when the 5-hour session expires.
+    #[serde(default = "default_sound_session_end")]
+    pub sound_session_end: String,
+    /// Preset id played when a usage threshold is crossed.
+    #[serde(default = "default_sound_threshold")]
+    pub sound_usage_threshold: String,
 }
 
 fn default_warn_pct() -> u8 { 80 }
 fn default_true() -> bool { true }
+fn default_usage_thresholds() -> Vec<u8> { vec![75, 90, 100] }
+fn default_sound_volume() -> u8 { 70 }
+fn default_sound_peak() -> String { "pulse".to_string() }
+fn default_sound_session_start() -> String { "success".to_string() }
+fn default_sound_session_end() -> String { "chime".to_string() }
+fn default_sound_threshold() -> String { "warning".to_string() }
 
 impl Default for UserSettings {
     fn default() -> Self {
@@ -338,6 +381,15 @@ impl Default for UserSettings {
             weekly_reset_hour: 0,
             subscription_warn_pct: 80,
             subscription_warnings_enabled: true,
+            alert_session_start: true,
+            alert_session_end: true,
+            usage_warning_thresholds: vec![75, 90, 100],
+            sounds_enabled: true,
+            sound_volume: 70,
+            sound_peak_change: "pulse".to_string(),
+            sound_session_start: "success".to_string(),
+            sound_session_end: "chime".to_string(),
+            sound_usage_threshold: "warning".to_string(),
         }
     }
 }
@@ -357,11 +409,19 @@ pub struct AppState {
     pub token_alert_fired_today: Option<String>,
     /// Timestamp of the last `force_refresh` call for rate-limiting.
     pub last_force_refresh: Option<std::time::Instant>,
-    /// session_start of the session where we already fired a warning.
-    /// Ensures at most one warning per 5-hour session.
-    pub subscription_session_warned: Option<String>,
-    /// week_start of the week where we already fired a warning.
-    pub subscription_week_warned: Option<String>,
+    /// session_start of the session whose START event we already announced.
+    /// Prevents firing a "new session" alert more than once per 5h window.
+    pub session_start_alerted: Option<String>,
+    /// When true, the last poll observed an active subscription session.
+    /// Transitioning from true → false fires a "session ended" alert.
+    pub had_active_session: bool,
+    /// Percentage thresholds already fired for the current 5h session.
+    /// Keyed by session_start so we reset when a new session begins.
+    pub fired_session_thresholds: Vec<u8>,
+    pub fired_session_thresholds_key: Option<String>,
+    /// Same for the weekly window.
+    pub fired_week_thresholds: Vec<u8>,
+    pub fired_week_thresholds_key: Option<String>,
 }
 
 impl Default for AppState {
@@ -376,8 +436,12 @@ impl Default for AppState {
             previous_color: PeakColor::Green,
             token_alert_fired_today: None,
             last_force_refresh: None,
-            subscription_session_warned: None,
-            subscription_week_warned: None,
+            session_start_alerted: None,
+            had_active_session: false,
+            fired_session_thresholds: Vec::new(),
+            fired_session_thresholds_key: None,
+            fired_week_thresholds: Vec::new(),
+            fired_week_thresholds_key: None,
         }
     }
 }

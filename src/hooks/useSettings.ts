@@ -18,6 +18,15 @@ const DEFAULT_SETTINGS: UserSettings = {
   weeklyResetHour: 0,
   subscriptionWarnPct: 80,
   subscriptionWarningsEnabled: true,
+  alertSessionStart: true,
+  alertSessionEnd: true,
+  usageWarningThresholds: [75, 90, 100],
+  soundsEnabled: true,
+  soundVolume: 70,
+  soundPeakChange: "pulse",
+  soundSessionStart: "success",
+  soundSessionEnd: "chime",
+  soundUsageThreshold: "warning",
 };
 
 export function useSettings() {

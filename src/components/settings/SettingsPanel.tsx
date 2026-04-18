@@ -4,6 +4,13 @@ import { useEffect, useState } from "react";
 import type { CostMode, SubscriptionPlan } from "../../types/peak";
 import { WEEKDAY_LABELS } from "../../types/subscription";
 import { CostLegend } from "./CostLegend";
+import {
+  playSound,
+  SOUND_IDS,
+  SOUND_LABELS,
+  type SoundId,
+  isValidSoundId,
+} from "../../lib/sounds";
 
 export function SettingsPanel() {
   const { settings, isLoading, updateSetting } = useSettings();
@@ -146,17 +153,56 @@ export function SettingsPanel() {
       <Section title="Notifications">
         <ToggleRow
           label="Enable notifications"
-          description="Show native OS notifications"
+          description="Master toggle for native OS notifications"
           checked={settings.notificationsEnabled}
           onChange={(v) => updateSetting("notificationsEnabled", v)}
         />
         <ToggleRow
-          label="Notify on color change"
-          description="Alert when peak level changes color"
+          label="Peak hour changes"
+          description="Alert when the peak level color changes (green → yellow → orange → red)"
           checked={settings.notifyOnColorChange}
           onChange={(v) => updateSetting("notifyOnColorChange", v)}
           disabled={!settings.notificationsEnabled}
         />
+        <ToggleRow
+          label="New 5-hour session started"
+          description="Alert when a fresh subscription session begins after a 5h idle gap"
+          checked={settings.alertSessionStart}
+          onChange={(v) => updateSetting("alertSessionStart", v)}
+          disabled={
+            !settings.notificationsEnabled || settings.costMode !== "subscription"
+          }
+        />
+        <ToggleRow
+          label="5-hour session ended"
+          description="Alert when the current subscription session expires"
+          checked={settings.alertSessionEnd}
+          onChange={(v) => updateSetting("alertSessionEnd", v)}
+          disabled={
+            !settings.notificationsEnabled || settings.costMode !== "subscription"
+          }
+        />
+        <ToggleRow
+          label="Usage threshold warnings"
+          description="Fire a warning at each configured % of the plan limit"
+          checked={settings.subscriptionWarningsEnabled}
+          onChange={(v) => updateSetting("subscriptionWarningsEnabled", v)}
+          disabled={
+            !settings.notificationsEnabled || settings.costMode !== "subscription"
+          }
+        />
+        {settings.costMode === "subscription" && (
+          <ThresholdListRow
+            label="Warning thresholds (%)"
+            description="Each threshold fires once per window — session or weekly"
+            value={settings.usageWarningThresholds}
+            onChange={(v) => updateSetting("usageWarningThresholds", v)}
+            disabled={
+              !settings.notificationsEnabled ||
+              !settings.subscriptionWarningsEnabled
+            }
+          />
+        )}
         <NumberRow
           label="Daily token alert (0 = disabled)"
           value={settings.dailyTokenAlert ?? 0}
@@ -165,6 +211,57 @@ export function SettingsPanel() {
           step={10000}
           onChange={(v) => updateSetting("dailyTokenAlert", v === 0 ? null : v)}
         />
+      </Section>
+
+      {/* Sound alerts — paired with each notification category */}
+      <Section title="Sound alerts">
+        <ToggleRow
+          label="Enable sounds"
+          description="Play a short tone when alerts fire. Sounds are generated procedurally — no audio files shipped."
+          checked={settings.soundsEnabled}
+          onChange={(v) => updateSetting("soundsEnabled", v)}
+        />
+        <NumberRow
+          label="Volume (0-100)"
+          value={settings.soundVolume}
+          min={0}
+          max={100}
+          step={10}
+          onChange={(v) => updateSetting("soundVolume", v)}
+        />
+        <SoundPickerRow
+          label="Peak color change"
+          value={settings.soundPeakChange}
+          volume={settings.soundVolume}
+          onChange={(v) => updateSetting("soundPeakChange", v)}
+          disabled={!settings.soundsEnabled}
+        />
+        <SoundPickerRow
+          label="Session started"
+          value={settings.soundSessionStart}
+          volume={settings.soundVolume}
+          onChange={(v) => updateSetting("soundSessionStart", v)}
+          disabled={!settings.soundsEnabled}
+        />
+        <SoundPickerRow
+          label="Session ended"
+          value={settings.soundSessionEnd}
+          volume={settings.soundVolume}
+          onChange={(v) => updateSetting("soundSessionEnd", v)}
+          disabled={!settings.soundsEnabled}
+        />
+        <SoundPickerRow
+          label="Usage threshold crossed"
+          value={settings.soundUsageThreshold}
+          volume={settings.soundVolume}
+          onChange={(v) => updateSetting("soundUsageThreshold", v)}
+          disabled={!settings.soundsEnabled}
+        />
+        <div className="text-[10px] text-foreground/30 leading-relaxed">
+          Tip: click the ▶ button next to any sound to preview. Browsers gate
+          audio behind a user gesture, so the first real alert may be silent
+          until you preview once.
+        </div>
       </Section>
 
       {/* About */}
@@ -346,6 +443,123 @@ function NumberRow({
           onChange(Math.max(min, Math.min(max, Math.round(raw))));
         }}
         className="text-xs bg-white/5 border border-white/10 rounded-md px-2 py-1 text-foreground/70 outline-none focus:border-white/20 w-24 text-right"
+      />
+    </div>
+  );
+}
+
+/** Sound preset picker with a preview button. Disabled when sounds are
+ *  globally off; shows current value as a label inside the dropdown. */
+function SoundPickerRow({
+  label,
+  value,
+  volume,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  volume: number;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const currentId: SoundId = isValidSoundId(value) ? value : "chime";
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 ${
+        disabled ? "opacity-40" : ""
+      }`}
+    >
+      <div className="text-xs text-foreground/70">{label}</div>
+      <div className="flex items-center gap-1.5">
+        <select
+          value={currentId}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          className="text-xs bg-white/5 border border-white/10 rounded-md px-2 py-1 text-foreground/70 outline-none focus:border-white/20 max-w-[170px]"
+        >
+          {SOUND_IDS.map((id) => (
+            <option key={id} value={id}>
+              {SOUND_LABELS[id]}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={disabled || currentId === "none"}
+          onClick={() => playSound(currentId, volume)}
+          title="Preview"
+          className="w-6 h-6 rounded flex items-center justify-center text-foreground/60 hover:text-foreground/90 hover:bg-white/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+            <path d="M2 1 L9 5 L2 9 Z" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Editable comma-separated list of integer percentages. Users can type
+ *  values directly; we parse, clamp to [1, 200], dedupe, and sort. */
+function ThresholdListRow({
+  label,
+  description,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  description?: string;
+  value: number[];
+  onChange: (value: number[]) => void;
+  disabled?: boolean;
+}) {
+  const [text, setText] = useState(() => value.join(", "));
+
+  // Keep local text in sync if external value changes (e.g. reset to defaults).
+  useEffect(() => {
+    setText(value.join(", "));
+  }, [value]);
+
+  const commit = () => {
+    const parsed = text
+      .split(/[,\s]+/)
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 200);
+    const unique = Array.from(new Set(parsed)).sort((a, b) => a - b);
+    onChange(unique);
+    setText(unique.join(", "));
+  };
+
+  return (
+    <div
+      className={`flex items-start justify-between gap-2 ${
+        disabled ? "opacity-40" : ""
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-xs text-foreground/70">{label}</div>
+        {description && (
+          <div className="text-[10px] text-foreground/30 mt-0.5">
+            {description}
+          </div>
+        )}
+      </div>
+      <input
+        type="text"
+        value={text}
+        disabled={disabled}
+        placeholder="e.g. 75, 90, 100"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        className="text-xs bg-white/5 border border-white/10 rounded-md px-2 py-1 text-foreground/70 outline-none focus:border-white/20 w-32 text-right"
       />
     </div>
   );

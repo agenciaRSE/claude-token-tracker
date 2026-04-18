@@ -86,3 +86,16 @@ export function onTokenAlert(
     callback(event.payload);
   });
 }
+
+export interface PlaySoundPayload {
+  soundId: string;
+  volume: number;
+}
+
+export function onPlaySound(
+  callback: (payload: PlaySoundPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<PlaySoundPayload>("play-sound", (event) => {
+    callback(event.payload);
+  });
+}

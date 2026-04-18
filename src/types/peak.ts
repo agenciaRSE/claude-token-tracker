@@ -50,8 +50,22 @@ export interface UserSettings {
   weeklyTokenLimit: number;        // 0 = plan default
   weeklyResetWeekday: number;      // 0=Sunday ... 6=Saturday
   weeklyResetHour: number;         // 0-23 UTC
-  subscriptionWarnPct: number;     // 10-100
+  subscriptionWarnPct: number;     // 10-100 (legacy — superseded by usageWarningThresholds)
   subscriptionWarningsEnabled: boolean;
+
+  // ── Alert triggers (which events fire) ──
+  alertSessionStart: boolean;
+  alertSessionEnd: boolean;
+  /** % checkpoints at which usage warnings fire. e.g. [75, 90, 100]. */
+  usageWarningThresholds: number[];
+
+  // ── Sound system ──
+  soundsEnabled: boolean;
+  soundVolume: number;             // 0-100
+  soundPeakChange: string;         // sound preset id
+  soundSessionStart: string;
+  soundSessionEnd: string;
+  soundUsageThreshold: string;
 }
 
 export const PEAK_COLORS: Record<PeakColor, string> = {

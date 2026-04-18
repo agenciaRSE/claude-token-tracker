@@ -200,5 +200,33 @@ fn validate_settings(mut s: UserSettings) -> Result<UserSettings, String> {
     s.weekly_reset_hour = s.weekly_reset_hour.min(23);
     s.subscription_warn_pct = s.subscription_warn_pct.clamp(10, 100);
 
+    // ── Alert + sound settings (NEW) ──────────────────────────────────
+    s.sound_volume = s.sound_volume.min(100);
+
+    // Valid percentages for usage warnings are 1..=200 (allow >100 to warn
+    // about overflow). De-dup, sort, and cap list length to prevent abuse.
+    let mut ths: Vec<u8> = s
+        .usage_warning_thresholds
+        .into_iter()
+        .filter(|&v| (1..=200).contains(&v))
+        .collect();
+    ths.sort();
+    ths.dedup();
+    ths.truncate(10);
+    s.usage_warning_thresholds = ths;
+
+    // Sound IDs must be one of the known presets to prevent the frontend
+    // from receiving a value the sound library doesn't recognize.
+    const VALID_SOUNDS: &[&str] = &[
+        "none", "chime", "bell", "ping", "alert", "pulse", "success", "warning",
+    ];
+    fn valid_or<'a>(got: &'a str, fallback: &'a str) -> &'a str {
+        if VALID_SOUNDS.contains(&got) { got } else { fallback }
+    }
+    s.sound_peak_change = valid_or(&s.sound_peak_change, "pulse").to_string();
+    s.sound_session_start = valid_or(&s.sound_session_start, "success").to_string();
+    s.sound_session_end = valid_or(&s.sound_session_end, "chime").to_string();
+    s.sound_usage_threshold = valid_or(&s.sound_usage_threshold, "warning").to_string();
+
     Ok(s)
 }
