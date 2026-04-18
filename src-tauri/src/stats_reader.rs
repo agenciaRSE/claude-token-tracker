@@ -149,9 +149,18 @@ fn compute_cost(model: &str, usage: &Usage) -> f64 {
 
 /// One assistant-message sample used for the 5-hour + weekly subscription
 /// windows. Keeping this outside the Aggregate so callers can own it.
+///
+/// `tokens` intentionally excludes `cache_read_input_tokens`: cache-read
+/// tokens are priced at ~10% of input tokens and empirical comparison
+/// against the Claude Desktop "Plan usage limits" panel shows they are
+/// not counted against subscription quotas. Including them produces a
+/// 5–15× overcount (heavy Claude Code sessions can read tens of millions
+/// of cache tokens that Claude's own meter doesn't bill).
 #[derive(Debug, Clone)]
 pub struct AssistantSample {
     pub timestamp: DateTime<Utc>,
+    /// Quota-relevant tokens: input + output + cache_creation.
+    /// Does NOT include cache_read.
     pub tokens: u64,
     pub cost: f64,
 }
@@ -430,10 +439,12 @@ fn process_file_handle(
         if ty_early == "assistant" && within_sample_window && agg.samples.len() < MAX_SAMPLES {
             if let Some(msg) = parsed.message.as_ref() {
                 if let Some(usage) = msg.usage.as_ref() {
-                    let total = usage.input_tokens
+                    // Quota-relevant sum: exclude cache_read_input_tokens.
+                    // See AssistantSample doc for the rationale — matching
+                    // Claude's own "Plan usage" meter requires this.
+                    let quota_tokens = usage.input_tokens
                         .saturating_add(usage.output_tokens)
-                        .saturating_add(usage.cache_creation_input_tokens)
-                        .saturating_add(usage.cache_read_input_tokens);
+                        .saturating_add(usage.cache_creation_input_tokens);
                     let model = msg
                         .model
                         .as_deref()
@@ -442,7 +453,7 @@ fn process_file_handle(
                     let cost = compute_cost(model, usage);
                     agg.samples.push(AssistantSample {
                         timestamp: dt,
-                        tokens: total,
+                        tokens: quota_tokens,
                         cost,
                     });
                 }
