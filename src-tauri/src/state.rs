@@ -222,23 +222,32 @@ pub enum SubscriptionPlan {
 }
 
 impl SubscriptionPlan {
-    /// Rough token budget for a 5-hour session, summing input + output +
-    /// cache tokens. These are community-derived estimates — Anthropic
-    /// does not publish exact subscription token quotas — so users should
-    /// override via the Custom plan if they observe drift.
+    /// Approximate 5-hour session token budget, in **quota-relevant tokens**
+    /// (input + output + cache_creation — cache_read is excluded, see
+    /// `AssistantSample` for the rationale).
+    ///
+    /// These defaults are calibrated from empirical comparison against the
+    /// Claude Desktop "Plan usage limits" panel for a real Max 5× user on
+    /// 2026-04-18 (observed 262.9K ≈ 29% of session, 27.2M ≈ 25% of week),
+    /// which back-solves to a session budget ≈ 900K and weekly ≈ 108M for
+    /// that plan. Pro / Max 20× are scaled proportionally to Anthropic's
+    /// published plan multipliers (1× / 5× / 20×).
+    ///
+    /// Users on any plan can override via the Custom entry or by typing a
+    /// non-zero value into the session/weekly token limit fields.
     pub fn default_session_tokens(&self) -> u64 {
         match self {
-            Self::Pro => 19_000_000,
-            Self::Max5x => 88_000_000,
-            Self::Max20x => 440_000_000,
+            Self::Pro => 200_000,
+            Self::Max5x => 1_000_000,
+            Self::Max20x => 4_000_000,
             Self::Custom => 0,
         }
     }
     pub fn default_weekly_tokens(&self) -> u64 {
         match self {
-            Self::Pro => 40_000_000,
-            Self::Max5x => 200_000_000,
-            Self::Max20x => 900_000_000,
+            Self::Pro => 22_000_000,
+            Self::Max5x => 108_000_000,
+            Self::Max20x => 432_000_000,
             Self::Custom => 0,
         }
     }

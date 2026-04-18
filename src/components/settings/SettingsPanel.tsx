@@ -142,9 +142,20 @@ export function SettingsPanel() {
             onChange={(v) => updateSetting("subscriptionWarningsEnabled", v)}
           />
           <div className="text-[10px] text-foreground/30 leading-relaxed">
-            Default limits are rough community estimates — if they drift from
-            what you see in Claude Desktop, switch to Custom and enter your
-            own values.
+            Token counting excludes cache-read (Anthropic prices those ~90%
+            cheaper and their internal quota meter discounts them heavily).
+            Defaults are calibrated empirically against Claude Desktop's
+            "Plan usage limits" panel, but individual accounts drift.
+            <br />
+            <span className="text-foreground/50">
+              To calibrate:
+            </span>{" "}
+            note what % Claude Desktop shows for your current session/week,
+            divide the raw token count you see in this app's popup bar by that
+            fraction, and enter the result as your Session / Weekly limit.
+            <br />
+            Example: popup shows 27.2M tokens this week, Claude Desktop shows
+            25% → effective weekly limit = 27.2M ÷ 0.25 =&nbsp;108M.
           </div>
         </Section>
       )}
