@@ -1,6 +1,6 @@
 [package]
 name = "claude-peak-monitor"
-version = "0.1.0"
+version = "0.2.0"
 description = "System tray app that monitors Claude AI peak usage hours"
 authors = ["AGENCIA RSE"]
 edition = "2021"
