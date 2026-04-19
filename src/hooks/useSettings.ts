@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   subscriptionPlan: "pro",
   sessionTokenLimit: 0,
   weeklyTokenLimit: 0,
+  sessionCostLimitUsd: 0,
   weeklyResetWeekday: 1, // Monday
   weeklyResetHour: 0,
   subscriptionWarnPct: 80,

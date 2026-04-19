@@ -83,9 +83,24 @@ pub fn save_settings(state: State<'_, AppStateWrapper>, settings: UserSettings) 
     };
     guard.subscription_usage.session_limit_tokens = session_limit;
     guard.subscription_usage.week_limit_tokens = weekly_limit;
-    if session_limit > 0 {
+
+    // Session percentage is driven by cost (token-based was wildly off
+    // due to cache bursts). Compute it from the cost limit.
+    let session_cost_limit = if guard.settings.session_cost_limit_usd > 0.0 {
+        guard.settings.session_cost_limit_usd
+    } else {
+        plan.default_session_cost_usd()
+    };
+    if session_cost_limit > 0.0 {
+        let p = (guard.subscription_usage.session_cost_usd / session_cost_limit) * 100.0;
+        if p.is_finite() {
+            guard.subscription_usage.session_pct = p.clamp(0.0, 999.0) as u16;
+        }
+    } else if session_limit > 0 {
         let p = (guard.subscription_usage.session_tokens as f64 / session_limit as f64) * 100.0;
         guard.subscription_usage.session_pct = p.clamp(0.0, 999.0) as u16;
+    }
+    if session_limit > 0 {
         guard.subscription_usage.session_extra_cost_usd = recompute_extra(
             guard.subscription_usage.session_tokens,
             session_limit,
@@ -194,8 +209,14 @@ fn validate_settings(mut s: UserSettings) -> Result<UserSettings, String> {
     // Subscription bounds: clamp to sane ranges so a corrupted store can't
     // produce NaN percentages or pick an invalid weekday.
     const MAX_SUB_TOKEN_LIMIT: u64 = 10_000_000_000; // 10B
+    const MAX_SUB_COST_LIMIT: f64 = 1_000_000.0; // $1M — absurd upper bound
     s.session_token_limit = s.session_token_limit.min(MAX_SUB_TOKEN_LIMIT);
     s.weekly_token_limit = s.weekly_token_limit.min(MAX_SUB_TOKEN_LIMIT);
+    // Clamp cost: reject NaN/infinite, negative, or absurdly large values.
+    if !s.session_cost_limit_usd.is_finite() || s.session_cost_limit_usd < 0.0 {
+        s.session_cost_limit_usd = 0.0;
+    }
+    s.session_cost_limit_usd = s.session_cost_limit_usd.min(MAX_SUB_COST_LIMIT);
     s.weekly_reset_weekday = s.weekly_reset_weekday.min(6);
     s.weekly_reset_hour = s.weekly_reset_hour.min(23);
     s.subscription_warn_pct = s.subscription_warn_pct.clamp(10, 100);

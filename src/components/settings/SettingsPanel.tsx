@@ -96,7 +96,15 @@ export function SettingsPanel() {
             onChange={(v) => updateSetting("subscriptionPlan", v)}
           />
           <NumberRow
-            label="Session token limit (0 = plan default)"
+            label="Session cost limit USD (0 = plan default)"
+            value={Math.round(settings.sessionCostLimitUsd)}
+            min={0}
+            max={10000}
+            step={10}
+            onChange={(v) => updateSetting("sessionCostLimitUsd", v)}
+          />
+          <NumberRow
+            label="Session token limit (display only, 0 = plan default)"
             value={settings.sessionTokenLimit}
             min={0}
             max={10_000_000_000}
@@ -142,20 +150,24 @@ export function SettingsPanel() {
             onChange={(v) => updateSetting("subscriptionWarningsEnabled", v)}
           />
           <div className="text-[10px] text-foreground/30 leading-relaxed">
-            Token counting excludes cache-read (Anthropic prices those ~90%
-            cheaper and their internal quota meter discounts them heavily).
-            Defaults are calibrated empirically against Claude Desktop's
-            "Plan usage limits" panel, but individual accounts drift.
+            The <strong>session bar is driven by cost</strong> (USD) rather
+            than tokens — Claude's own session meter appears cost-based, and
+            token counts drift wildly with cache_creation bursts. The
+            <strong> weekly bar uses tokens</strong> (excluding cache_read);
+            the two metrics coincide well enough over a 7-day window.
             <br />
             <span className="text-foreground/50">
-              To calibrate:
+              To calibrate session:
             </span>{" "}
-            note what % Claude Desktop shows for your current session/week,
-            divide the raw token count you see in this app's popup bar by that
-            fraction, and enter the result as your Session / Weekly limit.
+            note the cost shown in the popup's SESSION bar and the % Claude
+            Desktop shows for the same session, then set Session cost limit =
+            popup_cost ÷ (claude_% / 100).
             <br />
-            Example: popup shows 27.2M tokens this week, Claude Desktop shows
-            25% → effective weekly limit = 27.2M ÷ 0.25 =&nbsp;108M.
+            Example: popup shows $114 at our 422%, Claude shows 32% →
+            effective limit = $114 ÷ 0.32 ≈&nbsp;$357.
+            <br />
+            <span className="text-foreground/50">To calibrate weekly:</span>{" "}
+            popup_tokens ÷ (claude_% / 100). Example: 27.2M ÷ 0.25 =&nbsp;108M.
           </div>
         </Section>
       )}

@@ -48,6 +48,7 @@ export interface UserSettings {
   subscriptionPlan: SubscriptionPlan;
   sessionTokenLimit: number;       // 0 = plan default
   weeklyTokenLimit: number;        // 0 = plan default
+  sessionCostLimitUsd: number;     // 0 = plan default; primary session quota driver
   weeklyResetWeekday: number;      // 0=Sunday ... 6=Saturday
   weeklyResetHour: number;         // 0-23 UTC
   subscriptionWarnPct: number;     // 10-100 (legacy — superseded by usageWarningThresholds)

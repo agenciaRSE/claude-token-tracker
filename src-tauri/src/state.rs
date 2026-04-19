@@ -251,6 +251,28 @@ impl SubscriptionPlan {
             Self::Custom => 0,
         }
     }
+
+    /// Approximate **dollar** budget for a 5-hour session. Claude Desktop's
+    /// "Plan usage limits" session bar appears to be cost-driven rather
+    /// than token-driven — the same user on the same plan shows vastly
+    /// different session % depending on whether the current burst is
+    /// cache_creation-heavy or not. Cost, on the other hand, stays
+    /// proportional and matches Claude's percentage closely.
+    ///
+    /// Defaults calibrated from observed data points for a Max 5× user:
+    /// $83.72 at 29%, $113.33 at 38%, $22.37 at 11% → implied $200–340
+    /// session budget; we split the difference at ~$280.
+    ///
+    /// When > 0 the tracker uses this as the session quota; 0 falls back
+    /// to token-based accounting.
+    pub fn default_session_cost_usd(&self) -> f64 {
+        match self {
+            Self::Pro => 55.0,
+            Self::Max5x => 280.0,
+            Self::Max20x => 1_120.0,
+            Self::Custom => 0.0,
+        }
+    }
 }
 
 /// Snapshot of the user's subscription plan usage — both the rolling 5-hour
@@ -308,11 +330,19 @@ pub struct UserSettings {
     #[serde(default)]
     pub subscription_plan: SubscriptionPlan,
     /// Override for the 5-hour session token limit. 0 means "use plan default".
+    /// NOTE: session percentage is now driven by cost (see
+    /// `session_cost_limit_usd`); tokens are retained for display only.
     #[serde(default)]
     pub session_token_limit: u64,
     /// Override for the weekly token limit. 0 means "use plan default".
     #[serde(default)]
     pub weekly_token_limit: u64,
+    /// Override for the 5-hour session COST limit in USD. 0 means
+    /// "use plan default". This is the primary quota driver for the
+    /// session bar; token counting drifts wildly with cache bursts so
+    /// we use cost instead. See `SubscriptionPlan::default_session_cost_usd`.
+    #[serde(default)]
+    pub session_cost_limit_usd: f64,
     /// Day of week for the weekly reset. 0=Sunday, 1=Monday, ..., 6=Saturday.
     #[serde(default)]
     pub weekly_reset_weekday: u8,
@@ -386,6 +416,7 @@ impl Default for UserSettings {
             subscription_plan: SubscriptionPlan::Pro,
             session_token_limit: 0,
             weekly_token_limit: 0,
+            session_cost_limit_usd: 0.0,
             weekly_reset_weekday: 1, // Monday
             weekly_reset_hour: 0,
             subscription_warn_pct: 80,

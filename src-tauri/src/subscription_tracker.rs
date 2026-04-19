@@ -36,6 +36,11 @@ pub fn compute(samples: &[AssistantSample], settings: &UserSettings) -> Subscrip
     } else {
         settings.subscription_plan.default_weekly_tokens()
     };
+    let session_cost_limit = if settings.session_cost_limit_usd > 0.0 {
+        settings.session_cost_limit_usd
+    } else {
+        settings.subscription_plan.default_session_cost_usd()
+    };
     usage.session_limit_tokens = session_limit;
     usage.week_limit_tokens = weekly_limit;
 
@@ -88,7 +93,16 @@ pub fn compute(samples: &[AssistantSample], settings: &UserSettings) -> Subscrip
             usage.session_tokens = tokens;
             usage.session_cost_usd = cost;
             usage.session_messages = messages;
-            usage.session_pct = pct(tokens, session_limit);
+            // Session percentage is driven by COST, not tokens. Claude's
+            // "Plan usage limits" session bar appears to be cost-based —
+            // see SubscriptionPlan::default_session_cost_usd for the
+            // empirical calibration data. When cost_limit > 0 we use cost;
+            // otherwise (0 = disabled) we fall back to token-based.
+            usage.session_pct = if session_cost_limit > 0.0 {
+                pct_cost(cost, session_cost_limit)
+            } else {
+                pct(tokens, session_limit)
+            };
             usage.session_extra_cost_usd = extra_cost(tokens, session_limit, cost);
         }
     }
@@ -174,6 +188,17 @@ fn pct(used: u64, limit: u64) -> u16 {
     }
     // Cap display at 999% so the UI never gets a nonsense-sized bar.
     let p = (used as f64 / limit as f64) * 100.0;
+    p.clamp(0.0, 999.0) as u16
+}
+
+fn pct_cost(used: f64, limit: f64) -> u16 {
+    if limit <= 0.0 || !limit.is_finite() {
+        return 0;
+    }
+    let p = (used / limit) * 100.0;
+    if !p.is_finite() {
+        return 0;
+    }
     p.clamp(0.0, 999.0) as u16
 }
 
