@@ -15,6 +15,21 @@ use tokio::sync::Mutex as TokioMutex;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Single-instance plugin MUST be first — before any window or
+        // state setup — so a second process detects the first one, hands
+        // over its argv, and exits cleanly without ever creating a tray
+        // icon. Prevents the "two yellow dots" a user can get if autostart
+        // and manual launch race, or if the shell fires the autostart
+        // entry twice during a flaky logon.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // Second instance detected. Focus the existing popup so the
+            // user sees something happen. If the popup window exists,
+            // show + focus it; otherwise there's nothing to surface.
+            if let Some(popup) = app.get_webview_window("popup") {
+                let _ = popup.show();
+                let _ = popup.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,

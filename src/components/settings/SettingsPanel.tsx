@@ -290,7 +290,7 @@ export function SettingsPanel() {
       {/* About */}
       <Section title="About">
         <div className="text-xs text-foreground/40 space-y-1">
-          <p>Claude Consume and Peak Monitor v0.2.0</p>
+          <p>Claude Consume and Peak Monitor v0.2.1</p>
           <p>
             Monitors Claude AI peak usage hours using time patterns,
             Anthropic service status, and your local Claude Code statistics.
