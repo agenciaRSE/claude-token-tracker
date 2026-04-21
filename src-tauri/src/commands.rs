@@ -219,6 +219,7 @@ fn validate_settings(mut s: UserSettings) -> Result<UserSettings, String> {
     s.session_cost_limit_usd = s.session_cost_limit_usd.min(MAX_SUB_COST_LIMIT);
     s.weekly_reset_weekday = s.weekly_reset_weekday.min(6);
     s.weekly_reset_hour = s.weekly_reset_hour.min(23);
+    s.session_slot_anchor_hour = s.session_slot_anchor_hour.min(23);
     s.subscription_warn_pct = s.subscription_warn_pct.clamp(10, 100);
 
     // ── Alert + sound settings (NEW) ──────────────────────────────────

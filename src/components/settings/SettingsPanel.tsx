@@ -136,6 +136,14 @@ export function SettingsPanel() {
             onChange={(v) => updateSetting("weeklyResetHour", v)}
           />
           <NumberRow
+            label="5h session slot anchor (UTC hour)"
+            value={settings.sessionSlotAnchorHour}
+            min={0}
+            max={23}
+            step={1}
+            onChange={(v) => updateSetting("sessionSlotAnchorHour", v)}
+          />
+          <NumberRow
             label="Warning threshold (%)"
             value={settings.subscriptionWarnPct}
             min={10}
@@ -150,21 +158,24 @@ export function SettingsPanel() {
             onChange={(v) => updateSetting("subscriptionWarningsEnabled", v)}
           />
           <div className="text-[10px] text-foreground/30 leading-relaxed">
-            The <strong>session bar is driven by cost</strong> (USD) rather
-            than tokens — Claude's own session meter appears cost-based, and
-            token counts drift wildly with cache_creation bursts. The
-            <strong> weekly bar uses tokens</strong> (excluding cache_read);
-            the two metrics coincide well enough over a 7-day window.
+            The <strong>session is a fixed 5-hour UTC slot</strong>, not a
+            rolling window from your first message — Claude resets everyone
+            on the same grid. Default anchor 02:00 UTC gives slots at 02,
+            07, 12, 17, 22 UTC. If your Claude Desktop shows a different
+            reset time, change the slot anchor above.
+            <br />
+            The <strong>session % is cost-based</strong> (USD) rather than
+            tokens because Claude's session meter appears cost-driven and
+            token counts drift with cache bursts. The <strong>weekly %
+            uses tokens</strong> (excluding cache_read).
             <br />
             <span className="text-foreground/50">
               To calibrate session:
             </span>{" "}
-            note the cost shown in the popup's SESSION bar and the % Claude
-            Desktop shows for the same session, then set Session cost limit =
-            popup_cost ÷ (claude_% / 100).
-            <br />
-            Example: popup shows $114 at our 422%, Claude shows 32% →
-            effective limit = $114 ÷ 0.32 ≈&nbsp;$357.
+            note the cost in the popup SESSION bar and the % Claude
+            Desktop shows, then set Session cost limit = popup_cost ÷
+            (claude_% / 100). Example: popup $271 at our 60%, Claude
+            shows 60% → effective limit = $271 ÷ 0.60 ≈&nbsp;$452.
             <br />
             <span className="text-foreground/50">To calibrate weekly:</span>{" "}
             popup_tokens ÷ (claude_% / 100). Example: 27.2M ÷ 0.25 =&nbsp;108M.
@@ -290,7 +301,7 @@ export function SettingsPanel() {
       {/* About */}
       <Section title="About">
         <div className="text-xs text-foreground/40 space-y-1">
-          <p>Claude Consume and Peak Monitor v0.2.1</p>
+          <p>Claude Consume and Peak Monitor v0.2.2</p>
           <p>
             Monitors Claude AI peak usage hours using time patterns,
             Anthropic service status, and your local Claude Code statistics.

@@ -51,6 +51,7 @@ export interface UserSettings {
   sessionCostLimitUsd: number;     // 0 = plan default; primary session quota driver
   weeklyResetWeekday: number;      // 0=Sunday ... 6=Saturday
   weeklyResetHour: number;         // 0-23 UTC
+  sessionSlotAnchorHour: number;   // 0-23 UTC — 5h slots start at this hour
   subscriptionWarnPct: number;     // 10-100 (legacy — superseded by usageWarningThresholds)
   subscriptionWarningsEnabled: boolean;
 

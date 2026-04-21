@@ -257,19 +257,22 @@ impl SubscriptionPlan {
     /// than token-driven — the same user on the same plan shows vastly
     /// different session % depending on whether the current burst is
     /// cache_creation-heavy or not. Cost, on the other hand, stays
-    /// proportional and matches Claude's percentage closely.
+    /// roughly proportional to Claude's percentage.
     ///
-    /// Defaults calibrated from observed data points for a Max 5× user:
-    /// $83.72 at 29%, $113.33 at 38%, $22.37 at 11% → implied $200–340
-    /// session budget; we split the difference at ~$280.
+    /// Defaults calibrated from observed Max 5× data points. Implied
+    /// budgets across a week of observations:
+    /// $22→11% ($203), $83→29% ($289), $113→38% ($298), $114→32% ($357),
+    /// $271→60% ($452). The effective limit drifts with cache ratio, so
+    /// we pick a high-end value (450) to avoid over-counting during
+    /// heavy cache-read sessions; users can override via Custom.
     ///
     /// When > 0 the tracker uses this as the session quota; 0 falls back
     /// to token-based accounting.
     pub fn default_session_cost_usd(&self) -> f64 {
         match self {
-            Self::Pro => 55.0,
-            Self::Max5x => 280.0,
-            Self::Max20x => 1_120.0,
+            Self::Pro => 90.0,
+            Self::Max5x => 450.0,
+            Self::Max20x => 1_800.0,
             Self::Custom => 0.0,
         }
     }
@@ -349,6 +352,14 @@ pub struct UserSettings {
     /// Hour (0-23, UTC) of the weekly reset.
     #[serde(default)]
     pub weekly_reset_hour: u8,
+    /// Anchor hour (0-23, UTC) for the 5-hour session slot grid. Slots
+    /// boundaries are at this hour plus every multiple of 5. Default
+    /// 02 → slots at 02, 07, 12, 17, 22 UTC (validated against Claude
+    /// Desktop for a user in Spain on 2026-04-20). Claude's schedule
+    /// is believed to be global across users; if you observe a
+    /// different reset time, adjust here.
+    #[serde(default = "default_session_slot_anchor_hour")]
+    pub session_slot_anchor_hour: u8,
     /// Warning threshold as a percentage (0-100). Default 80.
     /// NOTE: kept for backward compatibility with v0.1 settings files, but
     /// the scheduler now reads from `usage_warning_thresholds` (multi-value).
@@ -396,6 +407,7 @@ pub struct UserSettings {
 
 fn default_warn_pct() -> u8 { 80 }
 fn default_true() -> bool { true }
+fn default_session_slot_anchor_hour() -> u8 { 2 }
 fn default_usage_thresholds() -> Vec<u8> { vec![75, 90, 100] }
 fn default_sound_volume() -> u8 { 70 }
 fn default_sound_peak() -> String { "pulse".to_string() }
@@ -419,6 +431,7 @@ impl Default for UserSettings {
             session_cost_limit_usd: 0.0,
             weekly_reset_weekday: 1, // Monday
             weekly_reset_hour: 0,
+            session_slot_anchor_hour: 2, // 02:00 UTC → slots at 02/07/12/17/22
             subscription_warn_pct: 80,
             subscription_warnings_enabled: true,
             alert_session_start: true,

@@ -1,23 +1,54 @@
-//! Computes the rolling 5-hour session window and the weekly allowance
-//! window from a list of assistant-message samples. Used to drive the
+//! Computes the 5-hour session slot and the weekly allowance window
+//! from a list of assistant-message samples. Used to drive the
 //! subscription-mode progress bars + countdowns shown in the popup.
 //!
-//! The 5-hour window logic mirrors Claude's subscription model:
-//!  - A session begins with the first message after a >= 5h idle gap.
-//!  - The session lasts exactly 5 hours from its start timestamp,
-//!    regardless of how many messages are sent in that window.
-//!  - Once the 5h elapses, the next message starts a new session.
+//! The 5-hour session logic mirrors Claude's actual behavior, which is
+//! NOT a rolling window from the user's first message but a fixed UTC
+//! grid shared across all users:
+//!  - Session slots are 5-hour windows aligned to a UTC anchor hour
+//!    (default 02:00 UTC → slots at 02, 07, 12, 17, 22 UTC).
+//!  - A session is always "current" — it's just whichever 5h slot now
+//!    falls into. Usage within that slot counts; usage from prior slots
+//!    doesn't. The slot always ends at its fixed reset time, regardless
+//!    of when the first message arrived.
+//!  - This matches what Claude Desktop's "Plan usage limits > Current
+//!    session > Resets in Nh Mm" displays.
 //!
 //! The weekly window is driven by the user's configured reset weekday
 //! and UTC hour (e.g. "Mondays at 00:00"), so it matches the timing
 //! shown in the Claude Desktop / claude.ai settings.
 
-use chrono::{DateTime, Datelike, Duration, TimeZone, Utc, Weekday};
+use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc, Weekday};
 
 use crate::state::{SubscriptionUsage, UserSettings};
 use crate::stats_reader::AssistantSample;
 
-const SESSION_DURATION_HOURS: i64 = 5;
+const SESSION_SLOT_HOURS: i64 = 5;
+
+/// Compute the [start, end) of the fixed 5-hour session slot that `now`
+/// falls into. Slots are aligned to `anchor_hour:00 UTC` and repeat
+/// every 5 hours forever. Default anchor 02:00 UTC (≡ slots at 02, 07,
+/// 12, 17, 22 UTC) was confirmed to match what Claude Desktop displays
+/// for a user in Spain on 2026-04-20.
+fn current_session_slot(
+    now: DateTime<Utc>,
+    anchor_hour: u8,
+) -> (DateTime<Utc>, DateTime<Utc>) {
+    let anchor_hour = anchor_hour.min(23) as u32;
+    // Reference moment: 2024-01-01 at anchor_hour:00 UTC. Any fixed past
+    // anchor works — slot boundaries are `reference + k * 5h` for any k.
+    let reference = Utc
+        .with_ymd_and_hms(2024, 1, 1, anchor_hour, 0, 0)
+        .single()
+        .unwrap_or(now);
+
+    let slot_seconds: i64 = SESSION_SLOT_HOURS * 3600;
+    // div_euclid handles pre-reference times correctly (floor toward -∞).
+    let slot_index = (now - reference).num_seconds().div_euclid(slot_seconds);
+    let slot_start = reference + Duration::seconds(slot_index * slot_seconds);
+    let slot_end = slot_start + Duration::hours(SESSION_SLOT_HOURS);
+    (slot_start, slot_end)
+}
 
 /// Compute the subscription usage snapshot given the pre-collected
 /// assistant samples and the user's settings.
@@ -48,64 +79,43 @@ pub fn compute(samples: &[AssistantSample], settings: &UserSettings) -> Subscrip
     let mut sorted: Vec<&AssistantSample> = samples.iter().collect();
     sorted.sort_by_key(|s| s.timestamp);
 
-    // ── 5-hour session ───────────────────────────────────────────────
-    // Walk forward tracking the current session_start. A session ends
-    // when the 5h window elapses; the next sample after that starts a
-    // new session.
-    let session_len = Duration::hours(SESSION_DURATION_HOURS);
-    let mut session_start: Option<DateTime<Utc>> = None;
+    // ── 5-hour session slot ──────────────────────────────────────────
+    // Claude's session is a fixed UTC slot, not a rolling window. All
+    // usage within [slot_start, slot_end) counts; prior slots don't.
+    let (slot_start, slot_end) =
+        current_session_slot(now, settings.session_slot_anchor_hour);
+
+    usage.session_start = Some(slot_start.to_rfc3339());
+    usage.session_end = Some(slot_end.to_rfc3339());
+    usage.session_seconds_until_reset = (slot_end - now).num_seconds().max(0);
+
+    let mut tokens = 0u64;
+    let mut cost = 0.0f64;
+    let mut messages = 0u32;
     for sample in &sorted {
-        match session_start {
-            None => session_start = Some(sample.timestamp),
-            Some(start) => {
-                if sample.timestamp - start >= session_len {
-                    // Previous session has expired — this sample begins a new one.
-                    session_start = Some(sample.timestamp);
-                }
-            }
+        if sample.timestamp >= slot_start && sample.timestamp < slot_end {
+            tokens = tokens.saturating_add(sample.tokens);
+            cost += sample.cost;
+            messages = messages.saturating_add(1);
         }
     }
-
-    if let Some(start) = session_start {
-        let end = start + session_len;
-        let active = end > now;
-        usage.session_active = active;
-        usage.session_start = Some(start.to_rfc3339());
-        usage.session_end = Some(end.to_rfc3339());
-        usage.session_seconds_until_reset = if active {
-            (end - now).num_seconds().max(0)
-        } else {
-            0
-        };
-
-        if active {
-            // Sum only samples that belong to the current session.
-            let mut tokens = 0u64;
-            let mut cost = 0.0f64;
-            let mut messages = 0u32;
-            for sample in &sorted {
-                if sample.timestamp >= start && sample.timestamp <= now {
-                    tokens = tokens.saturating_add(sample.tokens);
-                    cost += sample.cost;
-                    messages = messages.saturating_add(1);
-                }
-            }
-            usage.session_tokens = tokens;
-            usage.session_cost_usd = cost;
-            usage.session_messages = messages;
-            // Session percentage is driven by COST, not tokens. Claude's
-            // "Plan usage limits" session bar appears to be cost-based —
-            // see SubscriptionPlan::default_session_cost_usd for the
-            // empirical calibration data. When cost_limit > 0 we use cost;
-            // otherwise (0 = disabled) we fall back to token-based.
-            usage.session_pct = if session_cost_limit > 0.0 {
-                pct_cost(cost, session_cost_limit)
-            } else {
-                pct(tokens, session_limit)
-            };
-            usage.session_extra_cost_usd = extra_cost(tokens, session_limit, cost);
-        }
-    }
+    // "Active" now means "at least one message in this slot". The slot
+    // itself always exists, so the countdown runs even at 0% usage.
+    usage.session_active = messages > 0;
+    usage.session_tokens = tokens;
+    usage.session_cost_usd = cost;
+    usage.session_messages = messages;
+    // Session percentage is driven by COST, not tokens. Claude's
+    // "Plan usage limits" session bar appears to be cost-based —
+    // see SubscriptionPlan::default_session_cost_usd for the
+    // empirical calibration data. When cost_limit > 0 we use cost;
+    // otherwise (0 = disabled) we fall back to token-based.
+    usage.session_pct = if session_cost_limit > 0.0 {
+        pct_cost(cost, session_cost_limit)
+    } else {
+        pct(tokens, session_limit)
+    };
+    usage.session_extra_cost_usd = extra_cost(tokens, session_limit, cost);
 
     // ── Weekly window ────────────────────────────────────────────────
     let last_reset = last_weekly_reset(now, settings.weekly_reset_weekday, settings.weekly_reset_hour);
@@ -207,53 +217,78 @@ mod tests {
     use super::*;
     use crate::state::SubscriptionPlan;
 
-    fn sample(hours_ago: i64, tokens: u64) -> AssistantSample {
-        AssistantSample {
-            timestamp: Utc::now() - Duration::hours(hours_ago),
-            tokens,
-            cost: 0.0,
-        }
+    #[test]
+    fn slot_aligned_to_anchor_grid() {
+        // Session slots are fixed UTC grids at anchor_hour, +5, +10, +15, +20.
+        // A call at 10:23 UTC with anchor 2 should land in the 07-12 slot.
+        let now = Utc.with_ymd_and_hms(2026, 4, 20, 10, 23, 0).unwrap();
+        let (start, end) = current_session_slot(now, 2);
+        assert_eq!(start.hour(), 7);
+        assert_eq!(end.hour(), 12);
+        assert_eq!((end - start).num_hours(), 5);
     }
 
     #[test]
-    fn new_session_starts_after_previous_expires() {
-        // Session 1 starts at t=-8h and expires at t=-3h (-8h + 5h).
-        // The t=-6h sample is within session 1.
-        // The t=-2h sample is AFTER session 1 expired (-2h > -3h), so it
-        // starts session 2 which expires at t=+3h. Session 2 contains the
-        // -2h and -1h samples.
-        let samples = vec![
-            sample(8, 100),
-            sample(6, 200),
-            sample(2, 300),
-            sample(1, 400),
-        ];
+    fn slot_crosses_midnight_correctly() {
+        // anchor=2, now=23:30 UTC → slot 22:00 today - 03:00 tomorrow.
+        let now = Utc.with_ymd_and_hms(2026, 4, 20, 23, 30, 0).unwrap();
+        let (start, end) = current_session_slot(now, 2);
+        assert_eq!(start.day(), 20);
+        assert_eq!(start.hour(), 22);
+        assert_eq!(end.day(), 21);
+        assert_eq!(end.hour(), 3);
+    }
+
+    #[test]
+    fn only_current_slot_samples_are_counted() {
+        // With anchor=2 and now=10:30 UTC on 2026-04-20, current slot
+        // is [07:00, 12:00) UTC. Samples outside don't count.
         let mut settings = UserSettings::default();
         settings.subscription_plan = SubscriptionPlan::Pro;
+        // We need fixed timestamps, not relative — reuse the default
+        // compute path via real Utc::now() by crafting offsets.
+        let now = Utc::now();
+        let (slot_start, slot_end) = current_session_slot(now, settings.session_slot_anchor_hour);
+
+        let in_slot_a = slot_start + Duration::minutes(5);
+        let in_slot_b = slot_end - Duration::minutes(1);
+        let before_slot = slot_start - Duration::hours(1);
+
+        let samples = vec![
+            AssistantSample { timestamp: in_slot_a, tokens: 100, cost: 0.5 },
+            AssistantSample { timestamp: in_slot_b, tokens: 200, cost: 1.0 },
+            AssistantSample { timestamp: before_slot, tokens: 999, cost: 99.0 },
+        ];
+
         let usage = compute(&samples, &settings);
-        assert!(usage.session_active);
-        // Current session = session 2, only the -2h and -1h samples.
-        assert_eq!(usage.session_tokens, 300 + 400);
+        // Only the two in-slot samples should be aggregated.
         assert_eq!(usage.session_messages, 2);
-    }
-
-    #[test]
-    fn single_session_when_all_within_5h() {
-        // All samples within the last 5h — one continuous session.
-        let samples = vec![sample(4, 100), sample(3, 200), sample(1, 400)];
-        let settings = UserSettings::default();
-        let usage = compute(&samples, &settings);
+        assert_eq!(usage.session_tokens, 100 + 200);
         assert!(usage.session_active);
-        assert_eq!(usage.session_tokens, 100 + 200 + 400);
-        assert_eq!(usage.session_messages, 3);
     }
 
     #[test]
-    fn session_inactive_when_all_samples_old() {
-        let samples = vec![sample(10, 100)]; // >5h ago
-        let settings = UserSettings::default();
+    fn session_inactive_when_slot_is_empty() {
+        // All samples are from a previous slot → current slot sees 0 msgs,
+        // session_active = false, tokens = 0, but the slot itself still
+        // has a valid start/end so countdown keeps running.
+        let mut settings = UserSettings::default();
+        settings.subscription_plan = SubscriptionPlan::Pro;
+        let now = Utc::now();
+        let (slot_start, _slot_end) = current_session_slot(now, settings.session_slot_anchor_hour);
+        let before_slot = slot_start - Duration::hours(10);
+
+        let samples = vec![AssistantSample {
+            timestamp: before_slot,
+            tokens: 500,
+            cost: 2.0,
+        }];
+
         let usage = compute(&samples, &settings);
         assert!(!usage.session_active);
         assert_eq!(usage.session_tokens, 0);
+        assert_eq!(usage.session_messages, 0);
+        // Countdown still present because the slot always exists.
+        assert!(usage.session_seconds_until_reset > 0);
     }
 }

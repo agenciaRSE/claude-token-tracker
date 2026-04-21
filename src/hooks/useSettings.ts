@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   sessionCostLimitUsd: 0,
   weeklyResetWeekday: 1, // Monday
   weeklyResetHour: 0,
+  sessionSlotAnchorHour: 2,
   subscriptionWarnPct: 80,
   subscriptionWarningsEnabled: true,
   alertSessionStart: true,
